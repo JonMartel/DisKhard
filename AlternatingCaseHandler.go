@@ -17,19 +17,19 @@ func (eh *AlternatingCaseHandler) HandleMessage(s *discordgo.Session, m *discord
 	match, _ := regexp.MatchString("^/ac (.+)", m.Content)
 	if match == true {
 		//Alternate case the important bits
-		sliced := []byte(m.Content[4:len(m.Content)])
+		sliced := []rune(m.Content[4:len(m.Content)])
 		_, _ = s.ChannelMessageSend(m.ChannelID, alternateCase(sliced))
 	}
 	fmt.Printf("Message: %s\n", m.Content)
 }
 
-func alternateCase(sliced []byte) string {
+func alternateCase(sliced []rune) string {
 	for i := 0; i < len(sliced); i += 2 {
-		sliced[i] = byte(unicode.ToLower(rune(sliced[i])))
+		sliced[i] = unicode.ToLower(sliced[i])
 	}
 
 	for i := 1; i < len(sliced); i += 2 {
-		sliced[i] = byte(unicode.ToUpper(rune(sliced[i])))
+		sliced[i] = unicode.ToUpper(sliced[i])
 	}
 
 	return string(sliced)
