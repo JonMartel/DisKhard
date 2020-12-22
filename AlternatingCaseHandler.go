@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"regexp"
 	"unicode"
 
@@ -20,7 +19,6 @@ func (eh *AlternatingCaseHandler) HandleMessage(s *discordgo.Session, m *discord
 		sliced := []rune(m.Content[4:len(m.Content)])
 		_, _ = s.ChannelMessageSend(m.ChannelID, alternateCase(sliced))
 	}
-	fmt.Printf("Message: %s\n", m.Content)
 }
 
 func alternateCase(sliced []rune) string {
