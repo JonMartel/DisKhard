@@ -22,12 +22,23 @@ func (eh *AlternatingCaseHandler) HandleMessage(s *discordgo.Session, m *discord
 }
 
 func alternateCase(sliced []rune) string {
-	for i := 0; i < len(sliced); i += 2 {
-		sliced[i] = unicode.ToLower(sliced[i])
-	}
+	uppered := false
 
-	for i := 1; i < len(sliced); i += 2 {
-		sliced[i] = unicode.ToUpper(sliced[i])
+	for i := 0; i < len(sliced); i++ {
+		thisRuneLower := unicode.ToLower(sliced[i])
+		thisRuneUpper := unicode.ToUpper(sliced[i])
+
+		if uppered {
+			sliced[i] = thisRuneUpper
+		} else {
+			sliced[i] = thisRuneLower
+		}
+
+		//If the upper and lower are different, this means we've 'made a change', so to speak
+		//even if no change needed to be applied - swap the casing we want next!
+		if thisRuneLower != thisRuneUpper {
+			uppered = !uppered
+		}
 	}
 
 	return string(sliced)
