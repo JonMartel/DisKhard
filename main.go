@@ -56,13 +56,12 @@ func main() {
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 
-	//Run until we're done! Handle scheduled
+	//Run until we're done! Handle scheduled tasks as needed
 	for {
 		select {
 		case <-sc:
 			return
-		case t := <-hourSchedule.C:
-			fmt.Println("Curent time: ", t)
+		case <-hourSchedule.C:
 			scheduledTask(dg)
 		}
 	}
