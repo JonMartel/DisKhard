@@ -6,7 +6,9 @@ import (
 	"io/ioutil"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -14,9 +16,11 @@ import (
 //Configuration Struct used to store config info from json
 type Configuration struct {
 	Token string `json:"Token"`
+	Name  string `json:"Name"`
 }
 
 var handlers []MessageHandler
+var nameRegex regexp.Regexp
 
 func main() {
 
@@ -30,6 +34,12 @@ func main() {
 	fmt.Println("Using token: " + configuration.Token)
 
 	handlers = setupHandlers()
+	regexPattern := "\\!" + configuration.Name
+	nameRegex = *regexp.MustCompile(regexPattern)
+
+	//Daily Checks
+	hourSchedule := time.NewTicker(time.Minute)
+	defer hourSchedule.Stop()
 
 	dg.AddHandler(messageCreate)
 	dg.AddHandler(guildCreate)
@@ -45,7 +55,17 @@ func main() {
 	fmt.Println("Diskhard is now running. Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
-	<-sc
+
+	//Run until we're done! Handle scheduled
+	for {
+		select {
+		case <-sc:
+			return
+		case t := <-hourSchedule.C:
+			fmt.Println("Curent time: ", t)
+			scheduledTask(dg)
+		}
+	}
 }
 
 //Init Reads in the configuration
@@ -71,7 +91,14 @@ func setupHandlers() []MessageHandler {
 	slices := []MessageHandler{
 		//&EchoHandler{},
 		&AlternatingCaseHandler{},
+		&ReleaseHandler{},
 	}
+
+	for _, handler := range slices {
+		handler.Init()
+		fmt.Println("Initialized ", handler.GetName())
+	}
+
 	return slices
 }
 
@@ -83,8 +110,19 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	if nameRegex.MatchString(m.Content) {
+		showHandlerInfo(s, m.ChannelID)
+	} else {
+		for _, handler := range handlers {
+			handler.HandleMessage(s, m)
+		}
+	}
+}
+
+//scheduledTask handles passing our scheduled tasks to our handlers
+func scheduledTask(s *discordgo.Session) {
 	for _, handler := range handlers {
-		handler.HandleMessage(s, m)
+		handler.ScheduledTask(s)
 	}
 }
 
@@ -96,9 +134,20 @@ func guildCreate(s *discordgo.Session, event *discordgo.GuildCreate) {
 
 	for _, channel := range event.Guild.Channels {
 		if channel.ID == event.Guild.ID {
-			//_, _ = s.ChannelMessageSend(channel.ID, "Airhorn is ready! Type !airhorn while in a voice channel to play a sound.")
-			//return
 			fmt.Printf("Guild ID: %s\n", channel.GuildID)
 		}
 	}
+}
+
+func showHandlerInfo(s *discordgo.Session, channelID string) {
+	helpMessage := "Hey there! I currently support the following options:\n"
+
+	for _, handler := range handlers {
+		handlerHelp := handler.Help()
+		if len(handlerHelp) > 0 {
+			helpMessage += handlerHelp + "\n"
+		}
+	}
+
+	_, _ = s.ChannelMessageSend(channelID, helpMessage)
 }

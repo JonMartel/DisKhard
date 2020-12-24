@@ -11,14 +11,29 @@ import (
 type AlternatingCaseHandler struct {
 }
 
+//Init does nothing for this handler
+func (ach *AlternatingCaseHandler) Init() {
+
+}
+
+//GetName returns the name of this handler
+func (ach *AlternatingCaseHandler) GetName() string {
+	return "Alternating Case Handler"
+}
+
 //HandleMessage echoes the messages seen to stdout
-func (eh *AlternatingCaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (ach *AlternatingCaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	match, _ := regexp.MatchString("^/ac (.+)", m.Content)
 	if match == true {
 		//Alternate case the important bits
 		sliced := []rune(m.Content[4:len(m.Content)])
 		_, _ = s.ChannelMessageSend(m.ChannelID, alternateCase(sliced))
 	}
+}
+
+//Help Gets info about this handler
+func (ach *AlternatingCaseHandler) Help() string {
+	return "/ac : Alternate Case - takes input string and aLtErNaTeS iT!"
 }
 
 func alternateCase(sliced []rune) string {
@@ -42,4 +57,9 @@ func alternateCase(sliced []rune) string {
 	}
 
 	return string(sliced)
+}
+
+//ScheduledTask empty function to comply with interface reqs
+func (ach *AlternatingCaseHandler) ScheduledTask(s *discordgo.Session) {
+	//nothing
 }
