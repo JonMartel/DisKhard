@@ -91,8 +91,10 @@ func (rh *ReleaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.Messa
 //ScheduledTask empty function to comply with interface reqs
 func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
 	ctime := time.Now()
+	changed := false
 	if ctime.Hour() == 11 && ctime.Minute() == 0 {
 		for channel, channelSlice := range rh.releases {
+			tempReleases := channelSlice[:0]
 			for _, release := range channelSlice {
 				//Does this release have a notifiable release date specified?
 				dateMatch := rh.dateMatcher.FindStringSubmatch(release.ReleaseDate)
@@ -117,19 +119,33 @@ func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
 					nextWeekMonth := int(nextWeek.Month())
 					tomorrowMonth := int(tomorrow.Month())
 
-					if nextWeek.Year() == year && nextWeekMonth == month && nextWeek.Day() == day {
-						_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing next week!")
-					} else if tomorrow.Year() == year && tomorrowMonth == month && tomorrow.Day() == day {
-						_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing tomorrow!")
-					} else if ctime.Year() == year && int(ctime.Month()) == month && ctime.Day() == day {
+					if ctime.Year() == year && int(ctime.Month()) == month && ctime.Day() == day {
 						_, _ = s.ChannelMessageSend(channel, release.Name+" released today!")
+					} else {
+						//Regardless if we notify, add to the new list
+						tempReleases = append(tempReleases, release)
+
+						//Notify if appropriate!
+						if nextWeek.Year() == year && nextWeekMonth == month && nextWeek.Day() == day {
+							_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing next week!")
+						} else if tomorrow.Year() == year && tomorrowMonth == month && tomorrow.Day() == day {
+							_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing tomorrow!")
+						}
 					}
+				} else {
+					tempReleases = append(tempReleases, release)
 				}
 			}
-		}
 
-		//Time for updates!
-		//Need to delete all those releases that just occurred!
+			if len(tempReleases) != len(channelSlice) {
+				rh.releases[channel] = tempReleases
+				changed = true
+			}
+		}
+	}
+
+	if changed {
+		rh.writeData()
 	}
 }
 
