@@ -31,10 +31,10 @@ const dataFile = "./releaseData.json"
 
 //Init compiles regexp and loads in saved information
 func (rh *ReleaseHandler) Init() {
-	rh.matcher = *regexp.MustCompile(`/rw (\w+)(.*)`)
-	rh.addMatcher = *regexp.MustCompile(`([\w-/]+) (.*)`)
-	rh.editMatcher = *regexp.MustCompile(`(\d+) ([\w-/]+)`)
-	rh.deleteMatcher = *regexp.MustCompile(`(\d+)`)
+	rh.matcher = *regexp.MustCompile(`^` + rh.GetCommand() + ` (\w+)(.*)`)
+	rh.addMatcher = *regexp.MustCompile(`^` + rh.GetCommand() + ` ([\w-/]+) (.*)`)
+	rh.editMatcher = *regexp.MustCompile(`^` + rh.GetCommand() + ` (\d+) ([\w-/]+)`)
+	rh.deleteMatcher = *regexp.MustCompile(`^` + rh.GetCommand() + ` (\d+)`)
 	rh.dateMatcher = *regexp.MustCompile(`(\d+)[-\/](\d+)[-\/](\d+)`)
 	rh.releases = make(map[string][]releaseData)
 
@@ -64,6 +64,11 @@ func (rh *ReleaseHandler) Init() {
 //GetName returns our name
 func (rh *ReleaseHandler) GetName() string {
 	return "Release Handler"
+}
+
+//GetCommand returns our command string
+func (rh *ReleaseHandler) GetCommand() string {
+	return "/rw"
 }
 
 //HandleMessage echoes the messages seen to stdout

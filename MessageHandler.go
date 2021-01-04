@@ -6,6 +6,7 @@ import "github.com/bwmarrin/discordgo"
 type MessageHandler interface {
 	Init()
 	GetName() string
+	GetCommand() string
 	HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate)
 	ScheduledTask(s *discordgo.Session)
 	Help() string

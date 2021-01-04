@@ -20,6 +20,11 @@ func (eh *EchoHandler) GetName() string {
 	return "Echo Handler"
 }
 
+//GetCommand returns our command string (in this case, not applicable)
+func (eh *EchoHandler) GetCommand() string {
+	return nil
+}
+
 //HandleMessage echoes the messages seen to stdout
 func (eh *EchoHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	fmt.Printf("Message: %s\n", m.Content)

@@ -21,13 +21,19 @@ func (ach *AlternatingCaseHandler) GetName() string {
 	return "Alternating Case Handler"
 }
 
+//GetCommand returns our command string
+func (ach *AlternatingCaseHandler) GetCommand() string {
+	return "/ac"
+}
+
 //HandleMessage echoes the messages seen to stdout
 func (ach *AlternatingCaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	match, _ := regexp.MatchString("^/ac (.+)", m.Content)
+	match, _ := regexp.MatchString("^"+ach.GetCommand()+" (.+)", m.Content)
 	if match == true {
 		//Alternate case the important bits
 		sliced := []rune(m.Content[4:len(m.Content)])
 		_, _ = s.ChannelMessageSend(m.ChannelID, alternateCase(sliced))
+		_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
 	}
 }
 
