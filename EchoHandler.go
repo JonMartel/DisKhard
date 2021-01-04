@@ -22,7 +22,7 @@ func (eh *EchoHandler) GetName() string {
 
 //GetCommand returns our command string (in this case, not applicable)
 func (eh *EchoHandler) GetCommand() string {
-	return nil
+	return ""
 }
 
 //HandleMessage echoes the messages seen to stdout
