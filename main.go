@@ -28,7 +28,7 @@ func main() {
 	dg, err := discordgo.New("Bot " + configuration.Token)
 	if err != nil {
 		fmt.Println("Error creating Discord session: ", err)
-		return
+		os.Exit(1)
 	}
 
 	fmt.Println("Using token: " + configuration.Token)
@@ -49,6 +49,7 @@ func main() {
 	defer dg.Close()
 	if err != nil {
 		fmt.Println("Error opening Discord session: ", err)
+		return
 	}
 
 	// Wait here until CTRL-C or other term signal is received.
@@ -88,7 +89,7 @@ func Init() Configuration {
 
 func setupHandlers() []MessageHandler {
 	slices := []MessageHandler{
-		//&EchoHandler{},
+		&EchoHandler{},
 		&AlternatingCaseHandler{},
 		&ReleaseHandler{},
 	}
