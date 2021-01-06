@@ -89,7 +89,7 @@ func Init() Configuration {
 
 func setupHandlers() []MessageHandler {
 	slices := []MessageHandler{
-		&EchoHandler{},
+		//&EchoHandler{},
 		&AlternatingCaseHandler{},
 		&ReleaseHandler{},
 	}
