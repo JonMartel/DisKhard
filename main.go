@@ -93,6 +93,7 @@ func setupHandlers() []MessageHandler {
 		&AlternatingCaseHandler{},
 		&ReleaseHandler{},
 		&ReactionHandler{},
+		&FortuneHandler{},
 	}
 
 	for _, handler := range slices {
