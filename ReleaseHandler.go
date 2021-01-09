@@ -80,6 +80,11 @@ func (rh *ReleaseHandler) Init() {
 				slice = append(slice, release)
 				rh.releases[release.ChannelID] = slice
 			}
+
+			//Sort our slices now
+			for channel := range rh.releases {
+				sort.Sort(byReleaseDate(rh.releases[channel]))
+			}
 		}
 	}
 }
