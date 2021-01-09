@@ -22,7 +22,7 @@ func (fh *FortuneHandler) Init() {
 	//If fortune's usable...
 	_, err := exec.Command("fortune").Output()
 	if err != nil {
-		fmt.Println("fortune is not accessible; disabling.")
+		fmt.Println("fortune is not accessible; disabling.", err)
 	} else {
 		var chans []string
 
@@ -41,7 +41,7 @@ func (fh *FortuneHandler) Init() {
 
 //GetName returns name of handler
 func (fh *FortuneHandler) GetName() string {
-	return "Echo Handler"
+	return "Fortune Handler"
 }
 
 //HandleMessage echoes the messages seen to stdout
@@ -52,22 +52,22 @@ func (fh *FortuneHandler) HandleMessage(s *discordgo.Session, m *discordgo.Messa
 //ScheduledTask enmpty func to comply with interface reqs
 func (fh *FortuneHandler) ScheduledTask(s *discordgo.Session) {
 	if fh.active {
-		//current := time.Now()
+		current := time.Now()
 
 		//At 9, let's
-		//if current.Hour() == 9 && current.Minute() == 0 {
-		out, err := exec.Command("fortune").Output()
-		output := string(out)
-		if err == nil {
-			for _, channelID := range fh.channelIDs {
-				_, _ = s.ChannelMessageSend(channelID, output)
+		if current.Hour() == 9 && current.Minute() == 0 {
+			out, err := exec.Command("fortune").Output()
+			output := string(out)
+			if err == nil {
+				for _, channelID := range fh.channelIDs {
+					_, _ = s.ChannelMessageSend(channelID, output)
+				}
 			}
 		}
-		//}
 	}
 }
 
 //Help Gets info about this release handler
 func (fh *FortuneHandler) Help() string {
-	return "(Echo Handler Active)"
+	return "(Fortune Handler Active)"
 }
