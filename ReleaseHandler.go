@@ -39,9 +39,10 @@ func (s byReleaseDate) Swap(i, j int) {
 }
 func (s byReleaseDate) Less(i, j int) bool {
 	if s[i].ParsedDate != nil {
-		if s[j].ParsedDate == nil || s[i].ParsedDate.Before(*s[j].ParsedDate) {
+		if s[j].ParsedDate == nil {
 			return true
 		}
+		return s[i].ParsedDate.Before(*s[j].ParsedDate)
 	} else if s[j].ParsedDate != nil {
 		return false
 	}
@@ -73,6 +74,9 @@ func (rh *ReleaseHandler) Init() {
 		err = json.Unmarshal(fileData, &data)
 		if err == nil {
 			for _, release := range data {
+				//Try to update this release's ParsedDate
+				rh.updateReleaseTime(&release)
+
 				slice := rh.releases[release.ChannelID]
 				if slice == nil {
 					slice = make([]releaseData, 0)
@@ -83,7 +87,7 @@ func (rh *ReleaseHandler) Init() {
 
 			//Sort our slices now
 			for channel := range rh.releases {
-				sort.Sort(byReleaseDate(rh.releases[channel]))
+				sort.Stable(byReleaseDate(rh.releases[channel]))
 			}
 		}
 	}
@@ -196,7 +200,7 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 			channelSlice = make([]releaseData, 0)
 		}
 		channelSlice = append(channelSlice, releaseInfo)
-		sort.Sort(byReleaseDate(channelSlice))
+		sort.Stable(byReleaseDate(channelSlice))
 		rh.releases[channelID] = channelSlice
 
 		rh.writeData()
@@ -237,11 +241,12 @@ func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data stri
 			slice := rh.releases[channelID]
 			if slice != nil {
 				if len(slice) > index || index < 0 {
-					slice[index].ReleaseDate = newReleaseDate
-					rh.updateReleaseTime(&slice[index])
-					sort.Sort(byReleaseDate(slice))
+					entry := &slice[index]
+					entry.ReleaseDate = newReleaseDate
+					rh.updateReleaseTime(entry)
+					_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+entry.Name)
+					sort.Stable(byReleaseDate(slice))
 					rh.writeData()
-					_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+slice[index].Name)
 				} else {
 					//invalid index provided
 					_, _ = s.ChannelMessageSend(channelID, "Invalid ID specified")
