@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"regexp"
+	"sort"
 	"strconv"
 	"time"
 
@@ -25,6 +26,27 @@ type releaseData struct {
 	Name        string `json:"name"`
 	ReleaseDate string `json:"releasedate"`
 	ChannelID   string `json:"channelID"`
+	ParsedDate  *time.Time
+}
+
+type byReleaseDate []releaseData
+
+func (s byReleaseDate) Len() int {
+	return len(s)
+}
+func (s byReleaseDate) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+func (s byReleaseDate) Less(i, j int) bool {
+	if s[i].ParsedDate != nil {
+		if s[j].ParsedDate == nil || s[i].ParsedDate.Before(*s[j].ParsedDate) {
+			return true
+		}
+	} else if s[j].ParsedDate != nil {
+		return false
+	}
+
+	return s[i].Name < s[j].Name
 }
 
 const rwCommand string = "/rw"
@@ -33,7 +55,6 @@ const dataFile = "./releaseData.json"
 //Init compiles regexp and loads in saved information
 func (rh *ReleaseHandler) Init() {
 	rh.matcher = *regexp.MustCompile(`^\` + rwCommand + `\s+(\w+)\s*(.*)`)
-	//^\/rw\s+(\w+)\s*(.*)
 	rh.addMatcher = *regexp.MustCompile(`^([\w-/]+) (.*)`)
 	rh.editMatcher = *regexp.MustCompile(`^(\d+) ([\w-/]+)`)
 	rh.deleteMatcher = *regexp.MustCompile(`^(\d+)`)
@@ -92,45 +113,29 @@ func (rh *ReleaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.Messa
 
 //ScheduledTask empty function to comply with interface reqs
 func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
-	ctime := time.Now()
+	currentTime := time.Now()
+	cdate := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), 0, 0, 0, 0, time.Local)
 	changed := false
-	if ctime.Hour() == 11 && ctime.Minute() == 0 {
+	if currentTime.Hour() == 11 && currentTime.Minute() == 0 {
 		for channel, channelSlice := range rh.releases {
 			tempReleases := channelSlice[:0]
 			for _, release := range channelSlice {
 				//Does this release have a notifiable release date specified?
-				dateMatch := rh.dateMatcher.FindStringSubmatch(release.ReleaseDate)
-				if dateMatch != nil {
-					//It does, do we need to notify?
-					day, err1 := strconv.Atoi(dateMatch[2])
-					month, err2 := strconv.Atoi(dateMatch[1])
-					year, err3 := strconv.Atoi(dateMatch[3])
+				if release.ParsedDate != nil {
 
-					if err1 != nil || err2 != nil || err3 != nil {
-						fmt.Println("Error parsing dates for release notification")
-						continue
-					}
+					nextWeek := cdate.AddDate(0, 0, 7)
+					tomorrow := cdate.AddDate(0, 0, 1)
 
-					//Must be using 2 digit year format!
-					if year < 100 {
-						year += 2000
-					}
-
-					nextWeek := ctime.AddDate(0, 0, 7)
-					tomorrow := ctime.AddDate(0, 0, 1)
-					nextWeekMonth := int(nextWeek.Month())
-					tomorrowMonth := int(tomorrow.Month())
-
-					if ctime.Year() == year && int(ctime.Month()) == month && ctime.Day() == day {
+					if cdate == *release.ParsedDate {
 						_, _ = s.ChannelMessageSend(channel, release.Name+" released today!")
 					} else {
 						//Regardless if we notify, add to the new list
 						tempReleases = append(tempReleases, release)
 
 						//Notify if appropriate!
-						if nextWeek.Year() == year && nextWeekMonth == month && nextWeek.Day() == day {
+						if nextWeek == *release.ParsedDate {
 							_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing next week!")
-						} else if tomorrow.Year() == year && tomorrowMonth == month && tomorrow.Day() == day {
+						} else if tomorrow == *release.ParsedDate {
 							_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing tomorrow!")
 						}
 					}
@@ -179,13 +184,16 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 		releaseInfo.ReleaseDate = match[1]
 		releaseInfo.Name = match[2]
 		releaseInfo.ChannelID = channelID
+		rh.updateReleaseTime(&releaseInfo)
 
 		channelSlice := rh.releases[channelID]
 		if channelSlice == nil {
 			channelSlice = make([]releaseData, 0)
 		}
 		channelSlice = append(channelSlice, releaseInfo)
+		sort.Sort(byReleaseDate(channelSlice))
 		rh.releases[channelID] = channelSlice
+
 		rh.writeData()
 
 		_, _ = s.ChannelMessageSend(channelID, "Added "+releaseInfo.Name+" to releases, releasing "+releaseInfo.ReleaseDate)
@@ -201,7 +209,13 @@ func (rh *ReleaseHandler) list(s *discordgo.Session, channelID string) {
 	slice := rh.releases[channelID]
 	if slice != nil {
 		for x, release := range slice {
-			list += strconv.FormatInt(int64(x), 10) + ". " + release.ReleaseDate + " : " + release.Name + "\n"
+			list += strconv.FormatInt(int64(x), 10) + ") " + release.Name + " ("
+			if release.ParsedDate != nil {
+				list += release.ParsedDate.Format("01-02-2006")
+			} else {
+				list += release.ReleaseDate
+			}
+			list += ")\n"
 		}
 	} else {
 		list += "<No tracked releases>"
@@ -219,6 +233,8 @@ func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data stri
 			if slice != nil {
 				if len(slice) > index || index < 0 {
 					slice[index].ReleaseDate = newReleaseDate
+					rh.updateReleaseTime(&slice[index])
+					sort.Sort(byReleaseDate(slice))
 					rh.writeData()
 					_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+slice[index].Name)
 				} else {
@@ -267,4 +283,28 @@ func (rh *ReleaseHandler) help(s *discordgo.Session, channelID string) {
 	helpMessage += "/rw help - This output here!"
 
 	_, _ = s.ChannelMessageSend(channelID, helpMessage)
+}
+
+func (rh *ReleaseHandler) updateReleaseTime(rel *releaseData) {
+
+	dateMatch := rh.dateMatcher.FindStringSubmatch(rel.ReleaseDate)
+	if dateMatch != nil {
+		//It does, do we need to notify?
+		day, err1 := strconv.Atoi(dateMatch[2])
+		month, err2 := strconv.Atoi(dateMatch[1])
+		year, err3 := strconv.Atoi(dateMatch[3])
+
+		if err1 != nil || err2 != nil || err3 != nil {
+			fmt.Println("Error parsing dates for release notification")
+			return
+		}
+
+		//Must be using 2 digit year format!
+		if year < 100 {
+			year += 2000
+		}
+
+		parsed := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.Local)
+		rel.ParsedDate = &parsed
+	}
 }
