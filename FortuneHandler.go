@@ -55,9 +55,15 @@ func (fh *FortuneHandler) ScheduledTask(s *discordgo.Session) {
 	if fh.active {
 		current := time.Now()
 
-		//At 9, let's
+		//At 9, let's fortune!
 		if current.Hour() == 9 && current.Minute() == 0 {
-			out, err := exec.Command("fortune").Output()
+			command := "fortune"
+
+			//Special frogtime for wednesday
+			if current.Weekday() == time.Wednesday {
+				command = "fortune | cowsay -f bud-frogs"
+			}
+			out, err := exec.Command(command).Output()
 			output := string(out)
 			if err == nil {
 				for _, channelID := range fh.channelIDs {
