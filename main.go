@@ -92,6 +92,7 @@ func setupHandlers() []MessageHandler {
 		//&EchoHandler{},
 		&AlternatingCaseHandler{},
 		&ReleaseHandler{},
+		&ReactionHandler{},
 	}
 
 	for _, handler := range slices {
