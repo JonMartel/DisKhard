@@ -86,7 +86,7 @@ func (fh *FortuneHandler) generateFortune(s *discordgo.Session, channelIDs []str
 	out, err := exec.Command(command).Output()
 	output := string(out)
 	if err == nil {
-		for _, channelID := range fh.channelIDs {
+		for _, channelID := range channelIDs {
 			_, _ = s.ChannelMessageSend(channelID, output)
 		}
 	}
