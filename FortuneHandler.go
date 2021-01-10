@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os/exec"
+	"regexp"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -12,8 +13,9 @@ import (
 
 //FortuneHandler Echoes messages to stdout
 type FortuneHandler struct {
-	active     bool
-	channelIDs []string
+	active       bool
+	channelIDs   []string
+	fortuneRegex *regexp.Regexp
 }
 
 const fortuneFile = "./fortuneData.json"
@@ -35,6 +37,9 @@ func (fh *FortuneHandler) Init() {
 			err = json.Unmarshal(fileData, &chans)
 			fh.channelIDs = chans
 		}
+
+		//Set up our regexp
+		fh.fortuneRegex = regexp.MustCompile(`^/fortune$`)
 	}
 
 	fh.active = (err == nil)
@@ -47,7 +52,13 @@ func (fh *FortuneHandler) GetName() string {
 
 //HandleMessage echoes the messages seen to stdout
 func (fh *FortuneHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	//Nothin!
+	if fh.fortuneRegex.MatchString(m.Content) {
+		if fh.active {
+			fh.generateFortune(s)
+		} else {
+			_, _ = s.ChannelMessageSend(m.ChannelID, "The /fortune command is not currently supported")
+		}
+	}
 }
 
 //ScheduledTask enmpty func to comply with interface reqs
@@ -57,19 +68,24 @@ func (fh *FortuneHandler) ScheduledTask(s *discordgo.Session) {
 
 		//At 9, let's fortune!
 		if current.Hour() == 9 && current.Minute() == 0 {
-			command := "fortune"
+			fh.generateFortune(s)
+		}
+	}
+}
 
-			//Special frogtime for wednesday
-			if current.Weekday() == time.Wednesday {
-				command = "fortune | cowsay -f bud-frogs"
-			}
-			out, err := exec.Command(command).Output()
-			output := string(out)
-			if err == nil {
-				for _, channelID := range fh.channelIDs {
-					_, _ = s.ChannelMessageSend(channelID, output)
-				}
-			}
+func (fh *FortuneHandler) generateFortune(s *discordgo.Session) {
+	current := time.Now()
+	command := "fortune"
+
+	//Special frogtime for wednesday
+	if current.Weekday() == time.Wednesday {
+		command = "fortune | cowsay -f bud-frogs"
+	}
+	out, err := exec.Command(command).Output()
+	output := string(out)
+	if err == nil {
+		for _, channelID := range fh.channelIDs {
+			_, _ = s.ChannelMessageSend(channelID, output)
 		}
 	}
 }
