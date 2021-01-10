@@ -54,7 +54,9 @@ func (fh *FortuneHandler) GetName() string {
 func (fh *FortuneHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if fh.fortuneRegex.MatchString(m.Content) {
 		if fh.active {
-			fh.generateFortune(s)
+			channelID := make([]string, 1)
+			channelID[0] = m.ChannelID
+			fh.generateFortune(s, channelID)
 		} else {
 			_, _ = s.ChannelMessageSend(m.ChannelID, "The /fortune command is not currently supported")
 		}
@@ -68,12 +70,12 @@ func (fh *FortuneHandler) ScheduledTask(s *discordgo.Session) {
 
 		//At 9, let's fortune!
 		if current.Hour() == 9 && current.Minute() == 0 {
-			fh.generateFortune(s)
+			fh.generateFortune(s, fh.channelIDs)
 		}
 	}
 }
 
-func (fh *FortuneHandler) generateFortune(s *discordgo.Session) {
+func (fh *FortuneHandler) generateFortune(s *discordgo.Session, channelIDs []string) {
 	current := time.Now()
 	command := "fortune"
 
