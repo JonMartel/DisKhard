@@ -76,14 +76,12 @@ func (fh *FortuneHandler) ScheduledTask(s *discordgo.Session) {
 }
 
 func (fh *FortuneHandler) generateFortune(s *discordgo.Session, channelIDs []string) {
-	current := time.Now()
 	command := "fortune"
 
-	//Special frogtime for wednesday
-	if current.Weekday() == time.Wednesday {
-		command = "fortune | cowsay -f bud-frogs"
-	}
-	out, err := exec.Command(command).Output()
+	//Special frogtime for wednesday?
+	//command = "fortune | cowsay -f bud-frogs"
+
+	out, err := exec.Command(command, "startrek").Output()
 	output := string(out)
 	if err == nil {
 		for _, channelID := range channelIDs {
