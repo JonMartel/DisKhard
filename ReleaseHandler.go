@@ -38,6 +38,7 @@ func (s byReleaseDate) Swap(i, j int) {
 	s[i], s[j] = s[j], s[i]
 }
 func (s byReleaseDate) Less(i, j int) bool {
+	//First - can we simply sort by parsed date?
 	if s[i].ParsedDate != nil {
 		if s[j].ParsedDate == nil {
 			return true
@@ -47,7 +48,39 @@ func (s byReleaseDate) Less(i, j int) bool {
 		return false
 	}
 
+	//ParsedDate failed us - next, see if release is QXYYYY format
+	//If so, prioritize whichever is earliest
+	quarterRegex := regexp.MustCompile(`^Q(\d)(\d\d\d\d)$`)
+	iMatches := quarterRegex.FindStringSubmatch(s[i].ReleaseDate)
+	jMatches := quarterRegex.FindStringSubmatch(s[j].ReleaseDate)
+	if iMatches != nil && jMatches != nil {
+		iQuarter, iYear, iErr := extractQuarterInfo(iMatches[1], iMatches[2])
+		jQuarter, jYear, jErr := extractQuarterInfo(jMatches[1], jMatches[2])
+
+		if iErr == nil && jErr == nil {
+			return (iYear < jYear || (iYear == jYear && iQuarter < jQuarter) || s[i].Name < s[j].Name)
+		} else if iErr != nil || jErr != nil {
+			return iErr == nil
+		}
+
+	} else if iMatches != nil || jMatches != nil {
+		return iMatches != nil
+	}
+
+	//Final fallback, release name
 	return s[i].Name < s[j].Name
+}
+
+func extractQuarterInfo(quarter, year string) (int, int, error) {
+	iQuarter, err := strconv.Atoi(quarter)
+	if err == nil {
+		iYear, err := strconv.Atoi(year)
+		if err == nil {
+			return iQuarter, iYear, nil
+		}
+	}
+
+	return -1, -1, err
 }
 
 const rwCommand string = "/rw"

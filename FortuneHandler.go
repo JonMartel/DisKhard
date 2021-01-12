@@ -52,13 +52,11 @@ func (fh *FortuneHandler) GetName() string {
 
 //HandleMessage echoes the messages seen to stdout
 func (fh *FortuneHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if fh.fortuneRegex.MatchString(m.Content) {
-		if fh.active {
+	if fh.active {
+		if fh.fortuneRegex.MatchString(m.Content) {
 			channelID := make([]string, 1)
 			channelID[0] = m.ChannelID
 			fh.generateFortune(s, channelID)
-		} else {
-			_, _ = s.ChannelMessageSend(m.ChannelID, "The /fortune command is not currently supported")
 		}
 	}
 }
