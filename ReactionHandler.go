@@ -40,6 +40,7 @@ func (rh *ReactionHandler) Init() {
 			}
 		}
 	}
+
 }
 
 //GetName returns name of handler

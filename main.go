@@ -41,15 +41,27 @@ func main() {
 	hourSchedule := time.NewTicker(time.Minute)
 	defer hourSchedule.Stop()
 
+	dg.AddHandler(ready)
 	dg.AddHandler(messageCreate)
-	dg.AddHandler(guildCreate)
 
-	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates)
+	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAllWithoutPrivileged)
 	err = dg.Open()
 	defer dg.Close()
 	if err != nil {
 		fmt.Println("Error opening Discord session: ", err)
 		return
+	}
+
+	//Diagnostic info dump
+	guilds, err := dg.UserGuilds(100, "", "")
+	for _, guild := range guilds {
+		fmt.Println("Guild: " + guild.Name)
+		emojis, err := dg.GuildEmojis(guild.ID)
+		if err == nil {
+			for _, emoji := range emojis {
+				fmt.Println(emoji.Name + " : " + emoji.ID)
+			}
+		}
 	}
 
 	// Wait here until CTRL-C or other term signal is received.
@@ -94,6 +106,7 @@ func setupHandlers() []MessageHandler {
 		&ReleaseHandler{},
 		&ReactionHandler{},
 		&FortuneHandler{},
+		//&VoiceHandler{},
 	}
 
 	for _, handler := range slices {
@@ -102,6 +115,10 @@ func setupHandlers() []MessageHandler {
 	}
 
 	return slices
+}
+
+func ready(s *discordgo.Session, event *discordgo.Ready) {
+	s.UpdateStatus(0, "Soul Eater Hungers")
 }
 
 //messageCreate handles passing messages to our interested handlers
@@ -125,19 +142,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 func scheduledTask(s *discordgo.Session) {
 	for _, handler := range handlers {
 		handler.ScheduledTask(s)
-	}
-}
-
-func guildCreate(s *discordgo.Session, event *discordgo.GuildCreate) {
-
-	if event.Guild.Unavailable {
-		return
-	}
-
-	for _, channel := range event.Guild.Channels {
-		if channel.ID == event.Guild.ID {
-			fmt.Printf("Guild ID: %s\n", channel.GuildID)
-		}
 	}
 }
 

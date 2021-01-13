@@ -150,6 +150,8 @@ func (rh *ReleaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.Messa
 		default:
 			rh.help(s, m.ChannelID)
 		}
+
+		_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
 	}
 }
 
