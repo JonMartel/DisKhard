@@ -230,6 +230,14 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 		releaseInfo.ChannelID = channelID
 		rh.updateReleaseTime(&releaseInfo)
 
+		if releaseInfo.ParsedDate != nil {
+			now := time.Now()
+			if releaseInfo.ParsedDate.After(now) {
+				_, _ = s.ChannelMessageSend(channelID, "Specified date is in the past!")
+				return
+			}
+		}
+
 		channelSlice := rh.releases[channelID]
 		if channelSlice == nil {
 			channelSlice = make([]releaseData, 0)
@@ -320,10 +328,12 @@ func (rh *ReleaseHandler) delete(s *discordgo.Session, channelID string, data st
 func (rh *ReleaseHandler) help(s *discordgo.Session, channelID string) {
 	helpMessage := "The following commands are supported by /rw:\n"
 	helpMessage += "/rw add <date> <release> - Adds the following release for tracking.\n"
-	helpMessage += "\teg: /rw add 10/20/30 Persona 8 Dancing All 'Night\n"
+	helpMessage += "\t<date> can be in the following formats: MM/DD/YYYY MM-DD-YY\n"
+	helpMessage += "\teg: /rw add 10/20/35 Persona 8 Dancing All 'Night\n"
 	helpMessage += "/rw list - Lists all currently tracked releases\n"
-	helpMessage += "/rw edit <id> <date> - Change the specified release's release date.\n\tID can be obtained from /rw list\n"
-	helpMessage += "\teg: /rw edit 12 5/6/20\n"
+	helpMessage += "/rw edit <id> <date> - Change the specified release's release date.\n"
+	helpMessage += "\tID can be obtained from /rw list\n"
+	helpMessage += "\teg: /rw edit 12 5/16/2024\n"
 	helpMessage += "/rw delete <id> - Delete the specified release!\n\teg: /rw delete 5\n"
 	helpMessage += "/rw help - This output here!"
 
