@@ -232,7 +232,7 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 
 		if releaseInfo.ParsedDate != nil {
 			now := time.Now()
-			if releaseInfo.ParsedDate.After(now) {
+			if !now.Before(*releaseInfo.ParsedDate) {
 				_, _ = s.ChannelMessageSend(channelID, "Specified date is in the past!")
 				return
 			}
