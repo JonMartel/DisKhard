@@ -19,14 +19,20 @@ type ReleaseHandler struct {
 	editMatcher   regexp.Regexp
 	deleteMatcher regexp.Regexp
 	dateMatcher   regexp.Regexp
-	releases      map[string][]releaseData
+
+	releases map[string]*channelReleaseData
 }
 
 type releaseData struct {
 	Name        string `json:"name"`
 	ReleaseDate string `json:"releasedate"`
-	ChannelID   string `json:"channelID"`
 	ParsedDate  *time.Time
+}
+
+type channelReleaseData struct {
+	ChannelID       string        `json:"channelID"`
+	PinnedMessageID string        `json:"pinnedMessageID"`
+	Releases        []releaseData `json:"releaseData"`
 }
 
 type byReleaseDate []releaseData
@@ -93,10 +99,10 @@ func (rh *ReleaseHandler) Init() {
 	rh.editMatcher = *regexp.MustCompile(`^(\d+) ([\w-/]+)`)
 	rh.deleteMatcher = *regexp.MustCompile(`^(\d+)`)
 	rh.dateMatcher = *regexp.MustCompile(`(\d+)[-\/](\d+)[-\/](\d+)`)
-	rh.releases = make(map[string][]releaseData)
+	rh.releases = make(map[string]*channelReleaseData)
 
 	//Need to read in stored json info as well!
-	var data []releaseData
+	var data []channelReleaseData
 
 	// Get configuration
 	fileData, err := ioutil.ReadFile(dataFile)
@@ -106,21 +112,20 @@ func (rh *ReleaseHandler) Init() {
 		fmt.Println("Reading saved release data")
 		err = json.Unmarshal(fileData, &data)
 		if err == nil {
-			for _, release := range data {
-				//Try to update this release's ParsedDate
-				rh.updateReleaseTime(&release)
-
-				slice := rh.releases[release.ChannelID]
-				if slice == nil {
-					slice = make([]releaseData, 0)
+			for _, channelData := range data {
+				for _, release := range channelData.Releases {
+					//Try to update this release's ParsedDate
+					//This will ensure we convert any releases missing parsed times
+					rh.updateReleaseTime(&release)
 				}
-				slice = append(slice, release)
-				rh.releases[release.ChannelID] = slice
+
+				rh.releases[channelData.ChannelID] = &channelData
 			}
 
-			//Sort our slices now
-			for channel := range rh.releases {
-				sort.Stable(byReleaseDate(rh.releases[channel]))
+			//Sort our slices now, in case the ordering changed by updating
+			//parsed dates above
+			for _, channelData := range rh.releases {
+				sort.Stable(byReleaseDate(channelData.Releases))
 			}
 		}
 	}
@@ -155,15 +160,15 @@ func (rh *ReleaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.Messa
 	}
 }
 
-//ScheduledTask empty function to comply with interface reqs
+//ScheduledTask Handle our scheduled release notifications
 func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
 	currentTime := time.Now()
 	cdate := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), 0, 0, 0, 0, time.Local)
 	changed := false
 	if currentTime.Hour() == 11 && currentTime.Minute() == 0 {
-		for channel, channelSlice := range rh.releases {
-			tempReleases := channelSlice[:0]
-			for _, release := range channelSlice {
+		for _, channelData := range rh.releases {
+			tempChannelReleases := channelData.Releases[:0]
+			for _, release := range channelData.Releases {
 				//Does this release have a notifiable release date specified?
 				if release.ParsedDate != nil {
 
@@ -171,25 +176,26 @@ func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
 					tomorrow := cdate.AddDate(0, 0, 1)
 
 					if cdate == *release.ParsedDate {
-						_, _ = s.ChannelMessageSend(channel, release.Name+" released today!")
+						_, _ = s.ChannelMessageSend(channelData.ChannelID, release.Name+" released today!")
 					} else {
 						//Regardless if we notify, add to the new list
-						tempReleases = append(tempReleases, release)
+						tempChannelReleases = append(tempChannelReleases, release)
 
 						//Notify if appropriate!
 						if nextWeek == *release.ParsedDate {
-							_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing next week!")
+							_, _ = s.ChannelMessageSend(channelData.ChannelID, release.Name+" is releasing next week!")
 						} else if tomorrow == *release.ParsedDate {
-							_, _ = s.ChannelMessageSend(channel, release.Name+" is releasing tomorrow!")
+							_, _ = s.ChannelMessageSend(channelData.ChannelID, release.Name+" is releasing tomorrow!")
 						}
 					}
 				} else {
-					tempReleases = append(tempReleases, release)
+					tempChannelReleases = append(tempChannelReleases, release)
 				}
 			}
 
-			if len(tempReleases) != len(channelSlice) {
-				rh.releases[channel] = tempReleases
+			if len(tempChannelReleases) != len(channelData.Releases) {
+				channelData.Releases = tempChannelReleases
+				rh.updateChannelPin(s, channelData.ChannelID)
 				changed = true
 			}
 		}
@@ -207,15 +213,13 @@ func (rh *ReleaseHandler) Help() string {
 
 func (rh *ReleaseHandler) writeData() {
 	//join all the releases into a single slice...
-	releaseSlice := make([]releaseData, 0)
+	channelDataSlice := make([]channelReleaseData, 0)
 
-	for _, channelSlice := range rh.releases {
-		for _, channelRelease := range channelSlice {
-			releaseSlice = append(releaseSlice, channelRelease)
-		}
+	for _, channelData := range rh.releases {
+		channelDataSlice = append(channelDataSlice, *channelData)
 	}
 	//..which we then byte-ify and write to disk
-	jsonBytes, err := json.Marshal(releaseSlice)
+	jsonBytes, err := json.Marshal(channelDataSlice)
 	if err == nil {
 		ioutil.WriteFile(dataFile, jsonBytes, 0644)
 	}
@@ -227,27 +231,26 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 		releaseInfo := releaseData{}
 		releaseInfo.ReleaseDate = match[1]
 		releaseInfo.Name = match[2]
-		releaseInfo.ChannelID = channelID
 		rh.updateReleaseTime(&releaseInfo)
 
 		if releaseInfo.ParsedDate != nil {
 			now := time.Now()
 			if !now.Before(*releaseInfo.ParsedDate) {
-				_, _ = s.ChannelMessageSend(channelID, "Specified date is in the past!")
+				_, _ = s.ChannelMessageSend(channelID, "Error: Specified date \""+match[1]+"\" is in the past!")
 				return
 			}
 		}
 
-		channelSlice := rh.releases[channelID]
-		if channelSlice == nil {
-			channelSlice = make([]releaseData, 0)
+		channel, ok := rh.releases[channelID]
+		if !ok {
+			channel = rh.initChannel(channelID)
 		}
-		channelSlice = append(channelSlice, releaseInfo)
-		sort.Stable(byReleaseDate(channelSlice))
-		rh.releases[channelID] = channelSlice
+
+		channel.Releases = append(channel.Releases, releaseInfo)
+		sort.Stable(byReleaseDate(channel.Releases))
 
 		rh.writeData()
-
+		rh.updateChannelPin(s, channelID)
 		_, _ = s.ChannelMessageSend(channelID, "Added "+releaseInfo.Name+" to releases, releasing "+releaseInfo.ReleaseDate)
 	} else {
 		_, _ = s.ChannelMessageSend(channelID, "Invalid add syntax")
@@ -256,23 +259,32 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 }
 
 func (rh *ReleaseHandler) list(s *discordgo.Session, channelID string) {
+	formattedChannelRelease := rh.formatChannelReleases(channelID)
+	_, _ = s.ChannelMessageSend(channelID, formattedChannelRelease)
+}
+
+func (rh *ReleaseHandler) formatChannelReleases(channelID string) string {
 	list := "Here are my currently tracked releases:\n"
 
-	slice := rh.releases[channelID]
-	if slice != nil {
-		for x, release := range slice {
-			list += strconv.FormatInt(int64(x), 10) + ") " + release.Name + " ("
-			if release.ParsedDate != nil {
-				list += release.ParsedDate.Format("01-02-2006")
-			} else {
-				list += release.ReleaseDate
+	if channelData, ok := rh.releases[channelID]; ok {
+		if channelData.Releases != nil && len(channelData.Releases) > 0 {
+			for x, release := range channelData.Releases {
+				list += strconv.FormatInt(int64(x), 10) + ") " + release.Name + " ("
+				if release.ParsedDate != nil {
+					list += release.ParsedDate.Format("01-02-2006")
+				} else {
+					list += release.ReleaseDate
+				}
+				list += ")\n"
 			}
-			list += ")\n"
+		} else {
+			list += "<No tracked releases>"
 		}
 	} else {
 		list += "<No tracked releases>"
 	}
-	_, _ = s.ChannelMessageSend(channelID, list)
+
+	return list
 }
 
 func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data string) {
@@ -281,21 +293,29 @@ func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data stri
 		index, err := strconv.Atoi(match[1])
 		if err == nil {
 			newReleaseDate := match[2]
-			slice := rh.releases[channelID]
-			if slice != nil {
-				if len(slice) > index || index < 0 {
-					entry := &slice[index]
-					entry.ReleaseDate = newReleaseDate
-					rh.updateReleaseTime(entry)
-					_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+entry.Name)
-					sort.Stable(byReleaseDate(slice))
-					rh.writeData()
+			if channelData, ok := rh.releases[channelID]; ok {
+
+				slice := channelData.Releases
+				if slice != nil {
+					if len(slice) > index || index < 0 {
+						entry := &slice[index]
+						entry.ReleaseDate = newReleaseDate
+						rh.updateReleaseTime(entry)
+						sort.Stable(byReleaseDate(slice))
+
+						rh.updateChannelPin(s, channelData.ChannelID)
+						rh.writeData()
+						_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+entry.Name)
+					} else {
+						//invalid index provided
+						_, _ = s.ChannelMessageSend(channelID, "Invalid ID specified")
+					}
 				} else {
-					//invalid index provided
-					_, _ = s.ChannelMessageSend(channelID, "Invalid ID specified")
+					//Channel has no releases?
+					_, _ = s.ChannelMessageSend(channelID, "No releases currently available to edit")
 				}
 			} else {
-				//Channel has no releases?
+				//Channel data doesn't exist (yet), hence no releases to edit
 				_, _ = s.ChannelMessageSend(channelID, "No releases currently available to edit")
 			}
 		} else {
@@ -313,13 +333,21 @@ func (rh *ReleaseHandler) delete(s *discordgo.Session, channelID string, data st
 	if match != nil {
 		index, err := strconv.Atoi(match[1])
 		if err == nil {
-			slice := rh.releases[channelID]
-			if len(slice) > index || index < 0 {
-				rh.releases[channelID] = append(slice[:index], slice[index+1:]...)
-				rh.writeData()
-				_, _ = s.ChannelMessageSend(channelID, "Successfully removed release")
+			if channelData, ok := rh.releases[channelID]; ok {
+				if channelData.Releases != nil {
+					if len(channelData.Releases) > index || index < 0 {
+						channelData.Releases = append(channelData.Releases[:index], channelData.Releases[index+1:]...)
+						rh.updateChannelPin(s, channelData.ChannelID)
+						rh.writeData()
+						_, _ = s.ChannelMessageSend(channelID, "Successfully removed release")
+					} else {
+						_, _ = s.ChannelMessageSend(channelID, "Error: Invalid ID specified")
+					}
+				} else {
+					_, _ = s.ChannelMessageSend(channelID, "Error: Channel does not have any releases to delete!")
+				}
 			} else {
-				_, _ = s.ChannelMessageSend(channelID, "Invalid ID specified")
+				_, _ = s.ChannelMessageSend(channelID, "Error: Channel does not have any releases to delete!")
 			}
 		}
 	}
@@ -362,4 +390,41 @@ func (rh *ReleaseHandler) updateReleaseTime(rel *releaseData) {
 		parsed := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.Local)
 		rel.ParsedDate = &parsed
 	}
+}
+
+func (rh *ReleaseHandler) updateChannelPin(s *discordgo.Session, channelID string) {
+	message := rh.formatChannelReleases(channelID)
+
+	channel, ok := rh.releases[channelID]
+	if !ok {
+		channel = rh.initChannel(channelID)
+	}
+
+	if channel.PinnedMessageID != "" {
+		_, _ = s.ChannelMessageEdit(channel.ChannelID, channel.PinnedMessageID, message)
+	} else {
+		//We need to blast out our release entries and then set our message id for this channel
+		//If we error, do *not* set our pin message id
+		sentMessage, error := s.ChannelMessageSend(channelID, message)
+		if error == nil {
+			id := sentMessage.ID
+			pinError := s.ChannelMessagePin(channel.ChannelID, id)
+			if pinError == nil {
+				channel.PinnedMessageID = id
+			}
+		} else {
+			fmt.Println("Error sending message: " + error.Error())
+		}
+	}
+}
+
+func (rh *ReleaseHandler) initChannel(channelID string) *channelReleaseData {
+	//Spin up our channel and return it
+	channel := &channelReleaseData{}
+	channel.ChannelID = channelID
+	channel.Releases = make([]releaseData, 0)
+
+	rh.releases[channelID] = channel
+
+	return channel
 }
