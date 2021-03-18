@@ -38,8 +38,8 @@ func main() {
 	nameRegex = *regexp.MustCompile(regexPattern)
 
 	//Daily Checks
-	hourSchedule := time.NewTicker(time.Minute)
-	defer hourSchedule.Stop()
+	minuteSchedule := time.NewTicker(time.Minute)
+	defer minuteSchedule.Stop()
 
 	dg.AddHandler(ready)
 	dg.AddHandler(messageCreate)
@@ -74,7 +74,7 @@ func main() {
 		select {
 		case <-sc:
 			return
-		case <-hourSchedule.C:
+		case <-minuteSchedule.C:
 			scheduledTask(dg)
 		}
 	}
@@ -105,7 +105,8 @@ func setupHandlers() []MessageHandler {
 		&AlternatingCaseHandler{},
 		&ReleaseHandler{},
 		&ReactionHandler{},
-		&FortuneHandler{},
+		&ImageHandler{},
+		//&FortuneHandler{},
 		//&VoiceHandler{},
 	}
 
