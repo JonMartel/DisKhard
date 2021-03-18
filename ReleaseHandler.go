@@ -119,13 +119,11 @@ func (rh *ReleaseHandler) Init() {
 					rh.updateReleaseTime(&release)
 				}
 
-				rh.releases[channelData.ChannelID] = &channelData
-			}
-
-			//Sort our slices now, in case the ordering changed by updating
-			//parsed dates above
-			for _, channelData := range rh.releases {
+				//Sort our slices now, in case the ordering changed by updating
+				//parsed dates above
 				sort.Stable(byReleaseDate(channelData.Releases))
+				channelCopy := channelData
+				rh.releases[channelData.ChannelID] = &channelCopy
 			}
 		}
 	}
