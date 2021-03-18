@@ -29,12 +29,11 @@ type imageData struct {
 	Repeat     bool
 	Hour       int
 	Multiplier int
-	ImageList  []string
 }
 
 type channelImageData struct {
 	ChannelID string       `json:"channelID"`
-	ImageData []*imageData `json:"releaseData"`
+	ImageData []*imageData `json:"imageData"`
 }
 
 const iCommand string = "/i"
@@ -124,14 +123,18 @@ func (ih *ImageHandler) ScheduledTask(s *discordgo.Session) {
 					//7 == daily, so we do it always.
 					if imageBlock.Schedule == 7 || (imageBlock.Schedule) == currentTime.Weekday() {
 						if imageBlock.Hour == currentTime.Hour() {
-							ih.displayMultiple(s, channelData.ChannelID, imageBlock)
-							updatedGlobally = true
-							if len(imageBlock.ImageList) <= imageBlock.Current {
-								if imageBlock.Repeat {
-									imageBlock.Current = 0
-								} else {
-									keep = false
+							if imageList, err := ih.listFiles(imageBlock.Dir); err == nil {
+								ih.displayMultiple(s, channelData.ChannelID, imageBlock, imageList)
+								updatedGlobally = true
+								if len(imageList) <= imageBlock.Current {
+									if imageBlock.Repeat {
+										imageBlock.Current = 0
+									} else {
+										keep = false
+									}
 								}
+							} else {
+								_, _ = s.ChannelMessageSend(channelData.ChannelID, "Could not list out files for image block")
 							}
 						}
 					}
@@ -215,15 +218,17 @@ func (ih *ImageHandler) next(s *discordgo.Session, channelID string, command str
 		if imageGroup, ok := ih.imageMap[channelID]; ok {
 			for _, data := range imageGroup.ImageData {
 				if data.Dir == imageGroupDir {
-					ih.displayMultiple(s, channelID, data)
-					if len(data.ImageList) <= data.Current {
-						if data.Repeat {
-							data.Current = 0
-						} else {
-							_, _ = s.ChannelMessageSend(channelID, "Done! Completed all images for image block: "+data.Dir)
+					if imageList, err := ih.listFiles(data.Dir); err == nil {
+						ih.displayMultiple(s, channelID, data, imageList)
+						if len(imageList) <= data.Current {
+							if data.Repeat {
+								data.Current = 0
+							} else {
+								_, _ = s.ChannelMessageSend(channelID, "Done! Completed all images for image block: "+data.Dir)
+							}
 						}
+						ih.writeData()
 					}
-					ih.writeData()
 					return
 				}
 			}
@@ -252,6 +257,18 @@ func (ih *ImageHandler) writeData() {
 
 func (ih *ImageHandler) buildImageData(dir string, schedule string, hour int, multiplier int, repeat bool) (*imageData, error) {
 
+	data := imageData{}
+	data.Dir = dir
+	data.Current = 0
+	data.Schedule = ih.scheduleEnum[schedule]
+	data.Repeat = repeat
+	data.Multiplier = multiplier
+	data.Hour = hour
+
+	return &data, nil
+}
+
+func (ih *ImageHandler) listFiles(dir string) ([]string, error) {
 	path, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -275,28 +292,19 @@ func (ih *ImageHandler) buildImageData(dir string, schedule string, hour int, mu
 		return nil, err
 	}
 
-	data := imageData{}
-	data.Dir = dir
-	data.ImageList = files
-	data.Current = 0
-	data.Schedule = ih.scheduleEnum[schedule]
-	data.Repeat = repeat
-	data.Multiplier = multiplier
-	data.Hour = hour
-
-	return &data, nil
+	return files, nil
 }
 
-func (ih *ImageHandler) displayMultiple(s *discordgo.Session, channelID string, data *imageData) {
+func (ih *ImageHandler) displayMultiple(s *discordgo.Session, channelID string, data *imageData, imageList []string) {
 	//Better than converting to float64's imo
 	//but there must be a better way of getting the minimum, right?
-	imageSlice := (data.ImageList)
+	imageSlice := (imageList)
 	showCount := len(imageSlice) - (data.Current)
 	if showCount > (data.Multiplier) {
 		showCount = (data.Multiplier)
 
 		for i := 0; i < showCount; i++ {
-			ih.displayImage(s, channelID, data.ImageList[data.Current])
+			ih.displayImage(s, channelID, imageList[data.Current])
 			data.Current++
 		}
 	}
