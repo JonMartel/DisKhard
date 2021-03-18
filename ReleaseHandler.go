@@ -20,7 +20,7 @@ type ReleaseHandler struct {
 	deleteMatcher regexp.Regexp
 	dateMatcher   regexp.Regexp
 
-	releases map[string]channelReleaseData
+	releases map[string]*channelReleaseData
 }
 
 type releaseData struct {
@@ -99,7 +99,7 @@ func (rh *ReleaseHandler) Init() {
 	rh.editMatcher = *regexp.MustCompile(`^(\d+) ([\w-/]+)`)
 	rh.deleteMatcher = *regexp.MustCompile(`^(\d+)`)
 	rh.dateMatcher = *regexp.MustCompile(`(\d+)[-\/](\d+)[-\/](\d+)`)
-	rh.releases = make(map[string]channelReleaseData)
+	rh.releases = make(map[string]*channelReleaseData)
 
 	//Need to read in stored json info as well!
 	var data []channelReleaseData
@@ -112,15 +112,20 @@ func (rh *ReleaseHandler) Init() {
 		fmt.Println("Reading saved release data")
 		err = json.Unmarshal(fileData, &data)
 		if err == nil {
-			for _, chanData := range data {
-				for _, release := range chanData.Releases {
+			for _, channelData := range data {
+				for _, release := range channelData.Releases {
 					//Try to update this release's ParsedDate
 					//This will ensure we convert any releases missing parsed times
 					rh.updateReleaseTime(&release)
 				}
 
-				sort.Stable(byReleaseDate(chanData.Releases))
-				rh.releases[chanData.ChannelID] = chanData
+				rh.releases[channelData.ChannelID] = &channelData
+			}
+
+			//Sort our slices now, in case the ordering changed by updating
+			//parsed dates above
+			for _, channelData := range rh.releases {
+				sort.Stable(byReleaseDate(channelData.Releases))
 			}
 		}
 	}
@@ -211,7 +216,7 @@ func (rh *ReleaseHandler) writeData() {
 	channelDataSlice := make([]channelReleaseData, 0)
 
 	for _, channelData := range rh.releases {
-		channelDataSlice = append(channelDataSlice, channelData)
+		channelDataSlice = append(channelDataSlice, *channelData)
 	}
 	//..which we then byte-ify and write to disk
 	jsonBytes, err := json.Marshal(channelDataSlice)
@@ -290,7 +295,8 @@ func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data stri
 			newReleaseDate := match[2]
 			if channelData, ok := rh.releases[channelID]; ok {
 
-				if slice := channelData.Releases; slice != nil {
+				slice := channelData.Releases
+				if slice != nil {
 					if len(slice) > index || index < 0 {
 						entry := &slice[index]
 						entry.ReleaseDate = newReleaseDate
@@ -412,9 +418,9 @@ func (rh *ReleaseHandler) updateChannelPin(s *discordgo.Session, channelID strin
 	}
 }
 
-func (rh *ReleaseHandler) initChannel(channelID string) channelReleaseData {
+func (rh *ReleaseHandler) initChannel(channelID string) *channelReleaseData {
 	//Spin up our channel and return it
-	channel := channelReleaseData{}
+	channel := &channelReleaseData{}
 	channel.ChannelID = channelID
 	channel.Releases = make([]releaseData, 0)
 
