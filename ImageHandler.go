@@ -94,6 +94,8 @@ func (ih *ImageHandler) HandleMessage(s *discordgo.Session, m *discordgo.Message
 			ih.start(s, m.ChannelID, submatches[2])
 		case "next":
 			ih.next(s, m.ChannelID, submatches[2])
+		case "list":
+			ih.list(s, m.ChannelID)
 		case "help":
 			ih.help(s, m.ChannelID)
 		default:
@@ -161,11 +163,35 @@ func (ih *ImageHandler) Help() string {
 
 func (ih *ImageHandler) help(s *discordgo.Session, channelID string) {
 	helpMessage := "The following commands are supported by /i:\n"
-	helpMessage += "/i start <dir> <frequency>\n"
-	helpMessage += "Starts automatic posting of the images in the specified server dir\n"
-	helpMessage += "Frequency is one of: manual|daily|monday|tuesday|wednesday|thursday|friday\n"
+	helpMessage += "/i start <dir> <frequency> <hour> <pages-per-post> <repeat>\n"
+	helpMessage += "  Starts automatic posting of the images in the specified server dir\n"
+	helpMessage += "  Frequency is when posts are automatically made (manual|daily|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\n"
+	helpMessage += "  Hour is hour of the day to post at (0-23)\n"
+	helpMessage += "  Pages per post is how many pages to display at once\n"
+	helpMessage += "  Repeat allows the image block to repeat once it has finished (true|false)\n"
+	helpMessage += "/i list - lists out all currently configured image blocks and their progress\n"
 
 	_, _ = s.ChannelMessageSend(channelID, helpMessage)
+}
+
+func (ih *ImageHandler) list(s *discordgo.Session, channelID string) {
+	if channelData, exists := ih.imageMap[channelID]; exists {
+		if len(channelData.ImageData) > 0 {
+			message := "Image Block Data\n"
+			for _, imageBlock := range channelData.ImageData {
+				if fileList, err := ih.listFiles(imageBlock.Dir); err == nil {
+					total := strconv.Itoa(len(fileList))
+					page := strconv.Itoa(imageBlock.Current + 1) //Switch from 0-index to 1-index
+					message += imageBlock.Dir + " Page: " + page + " / " + total + "\n"
+				}
+			}
+			_, _ = s.ChannelMessageSend(channelID, message)
+			return
+		}
+	}
+
+	//If we got here, no channel data exists!
+	_, _ = s.ChannelMessageSend(channelID, "No image block data exists for this channel!")
 }
 
 func (ih *ImageHandler) start(s *discordgo.Session, channelID string, command string) {
