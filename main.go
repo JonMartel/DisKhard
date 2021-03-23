@@ -106,6 +106,7 @@ func setupHandlers() []MessageHandler {
 		&ReleaseHandler{},
 		&ReactionHandler{},
 		&ImageHandler{},
+		&ReminderHandler{},
 		//&FortuneHandler{},
 		//&VoiceHandler{},
 	}
