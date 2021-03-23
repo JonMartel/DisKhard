@@ -163,6 +163,18 @@ func (rh *ReminderHandler) add(s *discordgo.Session, channelID string, user stri
 	if match != nil {
 		if hour, err := strconv.Atoi(match[1]); err == nil {
 			if minute, err := strconv.Atoi(match[2]); err == nil {
+
+				//Let's validate these hour/minute values
+				if hour < 0 || hour > 23 {
+					s.ChannelMessageSend(channelID, "Hour must be between 0 and 23")
+					return
+				}
+
+				if minute < 0 || minute > 59 {
+					s.ChannelMessageSend(channelID, "Minutes must be between 0 and 59")
+					return
+				}
+
 				channel, ok := rh.channelReminders[channelID]
 				if !ok {
 					channel = rh.initChannel(channelID)
