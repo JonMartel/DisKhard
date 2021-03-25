@@ -288,26 +288,80 @@ func (rh *ReminderHandler) removeUser(s *discordgo.Session, channelID string, us
 }
 
 func (rh *ReminderHandler) formatChannelReminders(channelID string) string {
-	list := "Here are my current reminders:\n"
-
+	message := "```"
+	columns := [10]string{"ID", "Name", "Time", "U", "M", "T", "W", "R", "F", "S"}
+	columnRequiredSize := [10]int{2, 4, 5, 1, 1, 1, 1, 1, 1, 1}
 	if channelData, ok := rh.channelReminders[channelID]; ok {
 		if channelData.Reminders != nil && len(channelData.Reminders) > 0 {
-			for x, reminder := range channelData.Reminders {
-				list += strconv.FormatInt(int64(x), 10) + ") " + reminder.Name + " | "
-				for _, weekday := range reminder.Days {
-					list += strconv.Itoa(weekday)
+			//First, determine the maximum size name
+			for _, reminder := range channelData.Reminders {
+				nameLength := len(reminder.Name)
+				if columnRequiredSize[1] < nameLength {
+					columnRequiredSize[1] = nameLength
 				}
-				list += " | " + strconv.Itoa(reminder.Hour) + ":" + strconv.Itoa(reminder.Minute)
-				list += "\n"
 			}
+
+			//ID is minimum 2 chars, but potentially more
+			totalEntries := len(channelData.Reminders)
+			columnRequiredSize[0] = len(strconv.FormatInt(int64(totalEntries), 10))
+			if columnRequiredSize[0] < 2 {
+				columnRequiredSize[0] = 2
+			}
+
+			//Build up our column headers
+			//[ ID ][ Name ][ Time  ][ U ][ M ][ T ][ W ][ R ][ F ][ S ]
+			//[ 1  ][ Hmm  ][ 10:30 ][   ][   ][ X ][   ][   ][   ][   ]
+			for x := 0; x < len(columns); x++ {
+				message += rh.formatName(columns[x], columnRequiredSize[x])
+			}
+			message += "\n"
+
+			//Calculations out of the way, let's format this sucker
+			for x, reminder := range channelData.Reminders {
+				message += rh.formatName(strconv.FormatInt(int64(x), 10), columnRequiredSize[0])
+				message += rh.formatName(reminder.Name, columnRequiredSize[1])
+				timeString := strconv.FormatInt(int64(reminder.Hour), 10) + ":" + strconv.FormatInt(int64(reminder.Minute), 10)
+				message += rh.formatName(timeString, columnRequiredSize[2])
+
+				daySlice := make([]bool, 7)
+				for _, weekday := range reminder.Days {
+					daySlice[weekday] = true
+				}
+				for x := 0; x < len(daySlice); x++ {
+					message += rh.formatDayActive(daySlice[x])
+				}
+				message += "\n"
+			}
+			message += "```"
 		} else {
-			return "<No reminders>"
+			return "```<No reminders>```"
 		}
 	} else {
-		return "<No reminders>"
+		return "```<No reminders>```"
 	}
 
-	return list
+	return message
+}
+
+func (rh *ReminderHandler) formatName(value string, requiredLength int) string {
+	message := "[ " + value
+
+	extraWhitespace := requiredLength - len(value)
+	for x := 0; x < extraWhitespace; x++ {
+		message += " "
+	}
+
+	message += " ]"
+
+	return message
+}
+
+func (rh *ReminderHandler) formatDayActive(day bool) string {
+	if day {
+		return "[ X ]"
+	}
+
+	return "[   ]"
 }
 
 func (rh *ReminderHandler) help(s *discordgo.Session, channelID string) {
