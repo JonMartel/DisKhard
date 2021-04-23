@@ -334,10 +334,12 @@ func (rh *ReleaseHandler) delete(s *discordgo.Session, channelID string, data st
 			if channelData, ok := rh.releases[channelID]; ok {
 				if channelData.Releases != nil {
 					if len(channelData.Releases) > index || index < 0 {
+						removedRelease := channelData.Releases[index]
+						fmt.Println("Removing " + removedRelease.Name + " (" + removedRelease.ReleaseDate + ") from releases")
 						channelData.Releases = append(channelData.Releases[:index], channelData.Releases[index+1:]...)
 						rh.updateChannelPin(s, channelData.ChannelID)
 						rh.writeData()
-						_, _ = s.ChannelMessageSend(channelID, "Successfully removed release")
+						_, _ = s.ChannelMessageSend(channelID, "Removed "+removedRelease.Name+" from releases")
 					} else {
 						_, _ = s.ChannelMessageSend(channelID, "Error: Invalid ID specified")
 					}
