@@ -267,13 +267,12 @@ func (rh *ReleaseHandler) formatChannelReleases(channelID string) string {
 	if channelData, ok := rh.releases[channelID]; ok {
 		if channelData.Releases != nil && len(channelData.Releases) > 0 {
 			for x, release := range channelData.Releases {
-				list += strconv.FormatInt(int64(x), 10) + ") " + release.Name + " ("
 				if release.ParsedDate != nil {
 					list += release.ParsedDate.Format("01-02-2006")
 				} else {
 					list += release.ReleaseDate
 				}
-				list += ")\n"
+				list += " " + release.Name + " [ " + strconv.FormatInt(int64(x), 10) + "]\n"
 			}
 		} else {
 			list += "<No tracked releases>"
