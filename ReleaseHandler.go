@@ -272,7 +272,7 @@ func (rh *ReleaseHandler) formatChannelReleases(channelID string) string {
 				} else {
 					list += release.ReleaseDate
 				}
-				list += " " + release.Name + " [ " + strconv.FormatInt(int64(x), 10) + "]\n"
+				list += " " + release.Name + " [" + strconv.FormatInt(int64(x), 10) + "]\n"
 			}
 		} else {
 			list += "<No tracked releases>"
