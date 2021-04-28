@@ -296,13 +296,14 @@ func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data stri
 				if slice != nil {
 					if len(slice) > index || index < 0 {
 						entry := &slice[index]
+						entryName := entry.Name
 						entry.ReleaseDate = newReleaseDate
 						rh.updateReleaseTime(entry)
 						sort.Stable(byReleaseDate(slice))
 
 						rh.updateChannelPin(s, channelData.ChannelID)
 						rh.writeData()
-						_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+entry.Name)
+						_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+entryName)
 					} else {
 						//invalid index provided
 						_, _ = s.ChannelMessageSend(channelID, "Invalid ID specified")
