@@ -109,6 +109,7 @@ func setupHandlers() []MessageHandler {
 		&ReminderHandler{},
 		//&FortuneHandler{},
 		//&VoiceHandler{},
+		&IPHandler{},
 	}
 
 	for _, handler := range slices {
