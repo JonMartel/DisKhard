@@ -40,7 +40,7 @@ const iCommand string = "/i"
 const imageDataFile = "./imageData.json"
 
 //Init compiles regexp and loads in saved information
-func (ih *ImageHandler) Init() {
+func (ih *ImageHandler) Init(m chan *discordgo.MessageCreate) {
 	ih.matcher = *regexp.MustCompile(`^\` + iCommand + `\s+(\w+)\s*(.*)`)
 	//dir, schedule, hour, repeat
 	ih.startMatcher = *regexp.MustCompile(`^(\w+)\s(\w+)\s(\d+)\s(\d+)\s(\w+)$`)
@@ -77,6 +77,25 @@ func (ih *ImageHandler) Init() {
 			}
 		}
 	}
+
+	//schedule to check for when we need to do stuff!
+	minuteSchedule := time.NewTicker(time.Minute)
+	defer minuteSchedule.Stop()
+
+	go func() {
+		for {
+			select {
+			case message := <-m:
+				if message != nil {
+					ih.handleMessage(message)
+				} else {
+					return
+				}
+			case <-minuteSchedule.C:
+				ih.scheduledTask()
+			}
+		}
+	}()
 }
 
 //GetName returns our name
@@ -85,29 +104,29 @@ func (ih *ImageHandler) GetName() string {
 }
 
 //HandleMessage echoes the messages seen to stdout
-func (ih *ImageHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (ih *ImageHandler) handleMessage(m *discordgo.MessageCreate) {
 	submatches := ih.matcher.FindStringSubmatch(m.Content)
 	if submatches != nil {
 		command := submatches[1]
 		switch command {
 		case "start":
-			ih.start(s, m.ChannelID, submatches[2])
+			ih.start(m.ChannelID, submatches[2])
 		case "next":
-			ih.next(s, m.ChannelID, submatches[2])
+			ih.next(m.ChannelID, submatches[2])
 		case "list":
-			ih.list(s, m.ChannelID)
+			ih.list(m.ChannelID)
 		case "help":
-			ih.help(s, m.ChannelID)
+			ih.help(m.ChannelID)
 		default:
-			ih.help(s, m.ChannelID)
+			ih.help(m.ChannelID)
 		}
 
-		//_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
+		//DeleteMessage(m.ChannelID, m.ID)
 	}
 }
 
 //ScheduledTask Handle our scheduled release notifications
-func (ih *ImageHandler) ScheduledTask(s *discordgo.Session) {
+func (ih *ImageHandler) scheduledTask() {
 	currentTime := time.Now()
 	updatedGlobally := false
 
@@ -126,7 +145,7 @@ func (ih *ImageHandler) ScheduledTask(s *discordgo.Session) {
 					if imageBlock.Schedule == 7 || (imageBlock.Schedule) == currentTime.Weekday() {
 						if imageBlock.Hour == currentTime.Hour() {
 							if imageList, err := ih.listFiles(imageBlock.Dir); err == nil {
-								ih.displayMultiple(s, channelData.ChannelID, imageBlock, imageList)
+								ih.displayMultiple(channelData.ChannelID, imageBlock, imageList)
 								updatedGlobally = true
 								if len(imageList) <= imageBlock.Current {
 									if imageBlock.Repeat {
@@ -136,7 +155,7 @@ func (ih *ImageHandler) ScheduledTask(s *discordgo.Session) {
 									}
 								}
 							} else {
-								_, _ = s.ChannelMessageSend(channelData.ChannelID, "Could not list out files for image block")
+								MessageSender.SendMessage(channelData.ChannelID, "Could not list out files for image block")
 							}
 						}
 					}
@@ -161,7 +180,7 @@ func (ih *ImageHandler) Help() string {
 	return "/i : Image Reader - Reads images into chat from disk on a set schedule"
 }
 
-func (ih *ImageHandler) help(s *discordgo.Session, channelID string) {
+func (ih *ImageHandler) help(channelID string) {
 	helpMessage := "The following commands are supported by /i:\n"
 	helpMessage += "/i start <dir> <frequency> <hour> <pages-per-post> <repeat>\n"
 	helpMessage += "  Starts automatic posting of the images in the specified server dir\n"
@@ -171,10 +190,10 @@ func (ih *ImageHandler) help(s *discordgo.Session, channelID string) {
 	helpMessage += "  Repeat allows the image block to repeat once it has finished (true|false)\n"
 	helpMessage += "/i list - lists out all currently configured image blocks and their progress\n"
 
-	_, _ = s.ChannelMessageSend(channelID, helpMessage)
+	MessageSender.SendMessage(channelID, helpMessage)
 }
 
-func (ih *ImageHandler) list(s *discordgo.Session, channelID string) {
+func (ih *ImageHandler) list(channelID string) {
 	if channelData, exists := ih.imageMap[channelID]; exists {
 		if len(channelData.ImageData) > 0 {
 			message := "Image Block Data\n"
@@ -185,16 +204,16 @@ func (ih *ImageHandler) list(s *discordgo.Session, channelID string) {
 					message += imageBlock.Dir + " Page: " + page + " / " + total + "\n"
 				}
 			}
-			_, _ = s.ChannelMessageSend(channelID, message)
+			MessageSender.SendMessage(channelID, message)
 			return
 		}
 	}
 
 	//If we got here, no channel data exists!
-	_, _ = s.ChannelMessageSend(channelID, "No image block data exists for this channel!")
+	MessageSender.SendMessage(channelID, "No image block data exists for this channel!")
 }
 
-func (ih *ImageHandler) start(s *discordgo.Session, channelID string, command string) {
+func (ih *ImageHandler) start(channelID string, command string) {
 	submatches := ih.startMatcher.FindStringSubmatch(command)
 	if submatches != nil {
 		dir := submatches[1]
@@ -230,14 +249,14 @@ func (ih *ImageHandler) start(s *discordgo.Session, channelID string, command st
 				}
 			}
 		} else {
-			_, _ = s.ChannelMessageSend(channelID, schedule+" is not a valid schedule")
+			MessageSender.SendMessage(channelID, schedule+" is not a valid schedule")
 		}
 	} else {
-		_, _ = s.ChannelMessageSend(channelID, "Invalid start usage. See help for details")
+		MessageSender.SendMessage(channelID, "Invalid start usage. See help for details")
 	}
 }
 
-func (ih *ImageHandler) next(s *discordgo.Session, channelID string, command string) {
+func (ih *ImageHandler) next(channelID string, command string) {
 	submatches := ih.nextMatcher.FindStringSubmatch(command)
 	if submatches != nil {
 		imageGroupDir := submatches[1]
@@ -245,12 +264,12 @@ func (ih *ImageHandler) next(s *discordgo.Session, channelID string, command str
 			for _, data := range imageGroup.ImageData {
 				if data.Dir == imageGroupDir {
 					if imageList, err := ih.listFiles(data.Dir); err == nil {
-						ih.displayMultiple(s, channelID, data, imageList)
+						ih.displayMultiple(channelID, data, imageList)
 						if len(imageList) <= data.Current {
 							if data.Repeat {
 								data.Current = 0
 							} else {
-								_, _ = s.ChannelMessageSend(channelID, "Done! Completed all images for image block: "+data.Dir)
+								MessageSender.SendMessage(channelID, "Done! Completed all images for image block: "+data.Dir)
 							}
 						}
 						ih.writeData()
@@ -258,9 +277,9 @@ func (ih *ImageHandler) next(s *discordgo.Session, channelID string, command str
 					return
 				}
 			}
-			_, _ = s.ChannelMessageSend(channelID, "Specified image group does not exist!")
+			MessageSender.SendMessage(channelID, "Specified image group does not exist!")
 		} else {
-			_, _ = s.ChannelMessageSend(channelID, "No image groups on this channel!")
+			MessageSender.SendMessage(channelID, "No image groups on this channel!")
 		}
 	}
 }
@@ -321,7 +340,7 @@ func (ih *ImageHandler) listFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
-func (ih *ImageHandler) displayMultiple(s *discordgo.Session, channelID string, data *imageData, imageList []string) {
+func (ih *ImageHandler) displayMultiple(channelID string, data *imageData, imageList []string) {
 	//Better than converting to float64's imo
 	//but there must be a better way of getting the minimum, right?
 	imageSlice := (imageList)
@@ -330,32 +349,10 @@ func (ih *ImageHandler) displayMultiple(s *discordgo.Session, channelID string, 
 		showCount = (data.Multiplier)
 
 		for i := 0; i < showCount; i++ {
-			ih.displayImage(s, channelID, imageList[data.Current])
+			MessageSender.SendFile(channelID, imageList[data.Current])
 			data.Current++
 		}
 	}
 
 	//Cleanup is handled by the respective callers, as they need to handle clean-up differently
-}
-
-func (ih *ImageHandler) displayImage(s *discordgo.Session, channelID string, path string) error {
-	if img, err := os.Open(path); err == nil {
-		dgoFiles := make([]*discordgo.File, 0)
-		dgoFiles = append(dgoFiles, &discordgo.File{
-			Name:   path,
-			Reader: img,
-		})
-		_, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-			Files: dgoFiles,
-		})
-
-		if err != nil {
-			fmt.Println("Error sending image: ", err)
-			return err
-		}
-	} else {
-		return err
-	}
-
-	return nil
 }

@@ -13,9 +13,20 @@ type AlternatingCaseHandler struct {
 
 const acCommand = "/ac "
 
-//Init does nothing for this handler
-func (ach *AlternatingCaseHandler) Init() {
-
+//Init Handles setting up our channel listener
+func (ach *AlternatingCaseHandler) Init(m chan *discordgo.MessageCreate) {
+	go func() {
+		for {
+			select {
+			case message := <-m:
+				if message != nil {
+					ach.handleMessage(message)
+				} else {
+					return
+				}
+			}
+		}
+	}()
 }
 
 //GetName returns the name of this handler
@@ -23,14 +34,14 @@ func (ach *AlternatingCaseHandler) GetName() string {
 	return "Alternating Case Handler"
 }
 
-//HandleMessage echoes the messages seen to stdout
-func (ach *AlternatingCaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+//HandleMessage echoes the messages seen back, but aLtErNaTiNg CaSe
+func (ach *AlternatingCaseHandler) handleMessage(m *discordgo.MessageCreate) {
 	match, _ := regexp.MatchString(acCommand+"(.+)", m.Content)
 	if match == true {
 		//Alternate case the important bits
 		sliced := []rune(m.Content[4:len(m.Content)])
-		_, _ = s.ChannelMessageSend(m.ChannelID, alternateCase(sliced))
-		_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
+		MessageSender.SendMessage(m.ChannelID, ach.alternateCase(sliced))
+		MessageSender.DeleteMessage(m.ChannelID, m.ID)
 	}
 }
 
@@ -39,7 +50,7 @@ func (ach *AlternatingCaseHandler) Help() string {
 	return acCommand + ": Alternate Case - takes input string and aLtErNaTeS iT!"
 }
 
-func alternateCase(sliced []rune) string {
+func (ach *AlternatingCaseHandler) alternateCase(sliced []rune) string {
 	uppered := false
 
 	for i := 0; i < len(sliced); i++ {
@@ -60,9 +71,4 @@ func alternateCase(sliced []rune) string {
 	}
 
 	return string(sliced)
-}
-
-//ScheduledTask empty function to comply with interface reqs
-func (ach *AlternatingCaseHandler) ScheduledTask(s *discordgo.Session) {
-	//nothing
 }

@@ -13,8 +13,19 @@ type IPHandler struct {
 }
 
 //Init Nothing to do here
-func (iph *IPHandler) Init() {
-
+func (iph *IPHandler) Init(m chan *discordgo.MessageCreate) {
+	go func() {
+		for {
+			select {
+			case message := <-m:
+				if message != nil {
+					iph.handleMessage(message)
+				} else {
+					return
+				}
+			}
+		}
+	}()
 }
 
 //GetName returns name of handler
@@ -50,8 +61,8 @@ type Message struct {
 	Readme   string `json:"readme"`
 }
 
-//HandleMessage echoes the messages seen to stdout
-func (iph *IPHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+//handleMessage echoes the messages seen to stdout
+func (iph *IPHandler) handleMessage(m *discordgo.MessageCreate) {
 	if m.Content == "/ip" {
 		var myClient = &http.Client{Timeout: 1 * time.Second}
 		resp, err := myClient.Get("http://ipinfo.io")
@@ -64,7 +75,7 @@ func (iph *IPHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCr
 			if err != nil {
 				print("Failed to extract ipinfo")
 			} else {
-				_, err = s.ChannelMessageSend(m.ChannelID, "My publicly accessible IP is: "+message.IP)
+				MessageSender.SendMessage(m.ChannelID, "My publicly accessible IP is: "+message.IP)
 				if err != nil {
 					print("Error sending message")
 				}
@@ -72,14 +83,9 @@ func (iph *IPHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCr
 			return
 		}
 
-		s.ChannelMessage(m.ChannelID, "Error obtaining publicly accessible IP")
+		MessageSender.SendMessage(m.ChannelID, "Error obtaining publicly accessible IP")
 	}
 
-}
-
-//ScheduledTask enmpty func to comply with interface reqs
-func (iph *IPHandler) ScheduledTask(s *discordgo.Session) {
-	//nothing
 }
 
 //Help Gets info about this release handler

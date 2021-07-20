@@ -36,11 +36,18 @@ type channelReminderData struct {
 	Reminders []*Reminder
 }
 
+/*
+
+minuteSchedule := time.NewTicker(time.Minute)
+	defer minuteSchedule.Stop()
+
+*/
+
 const remindCommand string = "/remind"
 const reminderDataFile = "./ReminderData.json"
 
 //Init compiles regexp and loads in saved information
-func (rh *ReminderHandler) Init() {
+func (rh *ReminderHandler) Init(m chan *discordgo.MessageCreate) {
 	rh.matcher = *regexp.MustCompile(`^\` + remindCommand + `\s+(\w+)\s*(.*)$`)
 	rh.addMatcher = *regexp.MustCompile(`^(\d{1,2}):(\d\d) ([U日]?[M月]?[T火]?[W水]?[R木]?[F金]?[S土]?) (.*)$`)
 	rh.addRemoveUserMatcher = *regexp.MustCompile(`^(\d+)$`)
@@ -83,6 +90,25 @@ func (rh *ReminderHandler) Init() {
 			}
 		}
 	}
+
+	//Now, get our schedule ready
+	minuteSchedule := time.NewTicker(time.Minute)
+	defer minuteSchedule.Stop()
+
+	go func() {
+		for {
+			select {
+			case message := <-m:
+				if message != nil {
+					rh.handleMessage(message)
+				} else {
+					return
+				}
+			case <-minuteSchedule.C:
+				rh.scheduledTask()
+			}
+		}
+	}()
 }
 
 //GetName returns our name
@@ -91,31 +117,30 @@ func (rh *ReminderHandler) GetName() string {
 }
 
 //HandleMessage Adds/Edits/Removes reminders based on message input
-func (rh *ReminderHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (rh *ReminderHandler) handleMessage(m *discordgo.MessageCreate) {
 	submatches := rh.matcher.FindStringSubmatch(m.Content)
 	if submatches != nil {
 		command := submatches[1]
 		switch command {
 		case "add":
-			rh.add(s, m.ChannelID, m.Author.ID, submatches[2])
+			rh.add(m.ChannelID, m.Author.ID, submatches[2])
 		case "addme":
-			rh.addUser(s, m.ChannelID, m.Author.ID, submatches[2])
+			rh.addUser(m.ChannelID, m.Author.ID, submatches[2])
 		case "removeme":
-			rh.removeUser(s, m.ChannelID, m.Author.ID, submatches[2])
+			rh.removeUser(m.ChannelID, m.Author.ID, submatches[2])
 		case "list":
-			rh.list(s, m.ChannelID)
+			rh.list(m.ChannelID)
 		case "help":
-			rh.help(s, m.ChannelID)
+			rh.help(m.ChannelID)
 		default:
-			rh.help(s, m.ChannelID)
+			rh.help(m.ChannelID)
 		}
 
-		_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
+		MessageSender.DeleteMessage(m.ChannelID, m.ID)
 	}
 }
 
-//ScheduledTask Handle our scheduled Reminder notifications
-func (rh *ReminderHandler) ScheduledTask(s *discordgo.Session) {
+func (rh *ReminderHandler) scheduledTask() {
 	currentTime := time.Now()
 
 	for _, channelData := range rh.channelReminders {
@@ -131,7 +156,7 @@ func (rh *ReminderHandler) ScheduledTask(s *discordgo.Session) {
 						for _, user := range rem.Notifyees {
 							message += " " + rh.userPingString(user)
 						}
-						_, _ = s.ChannelMessageSend(channelData.ChannelID, message)
+						MessageSender.SendMessage(channelData.ChannelID, message)
 					}
 				}
 			}
@@ -158,7 +183,7 @@ func (rh *ReminderHandler) writeData() {
 	}
 }
 
-func (rh *ReminderHandler) add(s *discordgo.Session, channelID string, user string, data string) {
+func (rh *ReminderHandler) add(channelID string, user string, data string) {
 	match := rh.addMatcher.FindStringSubmatch(data)
 	if match != nil {
 		if hour, err := strconv.Atoi(match[1]); err == nil {
@@ -166,12 +191,12 @@ func (rh *ReminderHandler) add(s *discordgo.Session, channelID string, user stri
 
 				//Let's validate these hour/minute values
 				if hour < 0 || hour > 23 {
-					s.ChannelMessageSend(channelID, "Hour must be between 0 and 23")
+					MessageSender.SendMessage(channelID, "Hour must be between 0 and 23")
 					return
 				}
 
 				if minute < 0 || minute > 59 {
-					s.ChannelMessageSend(channelID, "Minutes must be between 0 and 59")
+					MessageSender.SendMessage(channelID, "Minutes must be between 0 and 59")
 					return
 				}
 
@@ -200,21 +225,21 @@ func (rh *ReminderHandler) add(s *discordgo.Session, channelID string, user stri
 				rh.writeData()
 
 				message := rh.userPingString(user) + " added " + reminder.Name + " reminder"
-				s.ChannelMessageSend(channelID, message)
+				MessageSender.SendMessage(channelID, message)
 			}
 		}
 	} else {
-		s.ChannelMessageSend(channelID, "Invalid add syntax")
+		MessageSender.SendMessage(channelID, "Invalid add syntax")
 	}
 
 }
 
-func (rh *ReminderHandler) list(s *discordgo.Session, channelID string) {
+func (rh *ReminderHandler) list(channelID string) {
 	formattedChannelReminder := rh.formatChannelReminders(channelID)
-	_, _ = s.ChannelMessageSend(channelID, formattedChannelReminder)
+	MessageSender.SendMessage(channelID, formattedChannelReminder)
 }
 
-func (rh *ReminderHandler) addUser(s *discordgo.Session, channelID string, user string, data string) {
+func (rh *ReminderHandler) addUser(channelID string, user string, data string) {
 	if match := rh.addRemoveUserMatcher.FindStringSubmatch(data); match != nil {
 		if channelData, ok := rh.channelReminders[channelID]; ok {
 			if index, err := strconv.Atoi(match[1]); err == nil {
@@ -223,7 +248,7 @@ func (rh *ReminderHandler) addUser(s *discordgo.Session, channelID string, user 
 					for _, notifyee := range reminder.Notifyees {
 						if user == notifyee {
 							//Hey, you're already here!
-							s.ChannelMessageSend(channelID, "You're already a notifyee of this reminder!")
+							MessageSender.SendMessage(channelID, "You're already a notifyee of this reminder!")
 							return
 						}
 					}
@@ -231,22 +256,22 @@ func (rh *ReminderHandler) addUser(s *discordgo.Session, channelID string, user 
 					//Not here already, lets add you!
 					reminder.Notifyees = append(reminder.Notifyees, user)
 					rh.writeData()
-					s.ChannelMessageSend(channelID, "Added user "+rh.userPingString(user)+" to notification list")
+					MessageSender.SendMessage(channelID, "Added user "+rh.userPingString(user)+" to notification list")
 				} else {
-					s.ChannelMessageSend(channelID, "That's not a valid reminder!")
+					MessageSender.SendMessage(channelID, "That's not a valid reminder!")
 				}
 			} else {
-				s.ChannelMessageSend(channelID, "Could not convert "+data+" to an integer!")
+				MessageSender.SendMessage(channelID, "Could not convert "+data+" to an integer!")
 			}
 		} else {
-			s.ChannelMessageSend(channelID, "No reminders for this channel!")
+			MessageSender.SendMessage(channelID, "No reminders for this channel!")
 		}
 	} else {
-		s.ChannelMessageSend(channelID, "Invalid syntax")
+		MessageSender.SendMessage(channelID, "Invalid syntax")
 	}
 }
 
-func (rh *ReminderHandler) removeUser(s *discordgo.Session, channelID string, user string, data string) {
+func (rh *ReminderHandler) removeUser(channelID string, user string, data string) {
 	if match := rh.addRemoveUserMatcher.FindStringSubmatch(data); match != nil {
 		if channelData, ok := rh.channelReminders[channelID]; ok {
 			if index, err := strconv.Atoi(match[1]); err == nil {
@@ -262,7 +287,7 @@ func (rh *ReminderHandler) removeUser(s *discordgo.Session, channelID string, us
 
 					if removeIndex == -1 {
 						//You're not in this notification list!
-						s.ChannelMessageSend(channelID, "You're not registered as a notifyee of this reminder!")
+						MessageSender.SendMessage(channelID, "You're not registered as a notifyee of this reminder!")
 					} else {
 						currentLength := len(reminder.Notifyees)
 						//Swap the last element to this element's position (may be the same element)
@@ -271,19 +296,19 @@ func (rh *ReminderHandler) removeUser(s *discordgo.Session, channelID string, us
 						reminder.Notifyees = reminder.Notifyees[:currentLength-1]
 
 						rh.writeData()
-						s.ChannelMessageSend(channelID, "Removed "+rh.userPingString(user)+" from notification list")
+						MessageSender.SendMessage(channelID, "Removed "+rh.userPingString(user)+" from notification list")
 					}
 				} else {
-					s.ChannelMessageSend(channelID, "Invalid reminder specified!")
+					MessageSender.SendMessage(channelID, "Invalid reminder specified!")
 				}
 			} else {
-				s.ChannelMessageSend(channelID, "Could not interpret "+data+" as an integer!")
+				MessageSender.SendMessage(channelID, "Could not interpret "+data+" as an integer!")
 			}
 		} else {
-			s.ChannelMessageSend(channelID, "This channel does not have reminders!")
+			MessageSender.SendMessage(channelID, "This channel does not have reminders!")
 		}
 	} else {
-		s.ChannelMessageSend(channelID, "Invalid parameters provided!")
+		MessageSender.SendMessage(channelID, "Invalid parameters provided!")
 	}
 }
 
@@ -364,7 +389,7 @@ func (rh *ReminderHandler) formatDayActive(day bool) string {
 	return "[   ]"
 }
 
-func (rh *ReminderHandler) help(s *discordgo.Session, channelID string) {
+func (rh *ReminderHandler) help(channelID string) {
 	helpMessage := "The following commands are supported by /rw:\n"
 	helpMessage += remindCommand + " add <time> <days> <Reminder> - Adds the following Reminder for tracking.\n"
 	helpMessage += "\t<time> is in HH:MM format using 24-hour time\n"
@@ -377,7 +402,7 @@ func (rh *ReminderHandler) help(s *discordgo.Session, channelID string) {
 	helpMessage += remindCommand + " removeme <id> - Remove yourself as a notifyee of the specified reminder\n"
 	helpMessage += remindCommand + " help - This output here!"
 
-	_, _ = s.ChannelMessageSend(channelID, helpMessage)
+	MessageSender.SendMessage(channelID, helpMessage)
 }
 
 func (rh *ReminderHandler) initChannel(channelID string) *channelReminderData {

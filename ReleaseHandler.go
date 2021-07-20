@@ -93,7 +93,7 @@ const rwCommand string = "/rw"
 const dataFile = "./releaseData.json"
 
 //Init compiles regexp and loads in saved information
-func (rh *ReleaseHandler) Init() {
+func (rh *ReleaseHandler) Init(m chan *discordgo.MessageCreate) {
 	rh.matcher = *regexp.MustCompile(`^\` + rwCommand + `\s+(\w+)\s*(.*)`)
 	rh.addMatcher = *regexp.MustCompile(`^([\w-/]+) (.*)`)
 	rh.editMatcher = *regexp.MustCompile(`^(\d+) ([\w-/]+)`)
@@ -127,6 +127,25 @@ func (rh *ReleaseHandler) Init() {
 			}
 		}
 	}
+
+	//Now, get our schedule ready
+	minuteSchedule := time.NewTicker(time.Minute)
+	defer minuteSchedule.Stop()
+
+	go func() {
+		for {
+			select {
+			case message := <-m:
+				if message != nil {
+					rh.handleMessage(message)
+				} else {
+					return
+				}
+			case <-minuteSchedule.C:
+				rh.scheduledTask()
+			}
+		}
+	}()
 }
 
 //GetName returns our name
@@ -134,32 +153,30 @@ func (rh *ReleaseHandler) GetName() string {
 	return "Release Handler"
 }
 
-//HandleMessage echoes the messages seen to stdout
-func (rh *ReleaseHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (rh *ReleaseHandler) handleMessage(m *discordgo.MessageCreate) {
 	submatches := rh.matcher.FindStringSubmatch(m.Content)
 	if submatches != nil {
 		command := submatches[1]
 		switch command {
 		case "add":
-			rh.add(s, m.ChannelID, submatches[2])
+			rh.add(m.ChannelID, submatches[2])
 		case "list":
-			rh.list(s, m.ChannelID)
+			rh.list(m.ChannelID)
 		case "edit":
-			rh.edit(s, m.ChannelID, submatches[2])
+			rh.edit(m.ChannelID, submatches[2])
 		case "delete":
-			rh.delete(s, m.ChannelID, submatches[2])
+			rh.delete(m.ChannelID, submatches[2])
 		case "help":
-			rh.help(s, m.ChannelID)
+			rh.help(m.ChannelID)
 		default:
-			rh.help(s, m.ChannelID)
+			rh.help(m.ChannelID)
 		}
 
-		_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
+		MessageSender.DeleteMessage(m.ChannelID, m.ID)
 	}
 }
 
-//ScheduledTask Handle our scheduled release notifications
-func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
+func (rh *ReleaseHandler) scheduledTask() {
 	currentTime := time.Now()
 	cdate := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), 0, 0, 0, 0, time.Local)
 	changed := false
@@ -174,16 +191,16 @@ func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
 					tomorrow := cdate.AddDate(0, 0, 1)
 
 					if cdate == *release.ParsedDate {
-						_, _ = s.ChannelMessageSend(channelData.ChannelID, release.Name+" released today!")
+						MessageSender.SendMessage(channelData.ChannelID, release.Name+" released today!")
 					} else {
 						//Regardless if we notify, add to the new list
 						tempChannelReleases = append(tempChannelReleases, release)
 
 						//Notify if appropriate!
 						if nextWeek == *release.ParsedDate {
-							_, _ = s.ChannelMessageSend(channelData.ChannelID, release.Name+" is releasing next week!")
+							MessageSender.SendMessage(channelData.ChannelID, release.Name+" is releasing next week!")
 						} else if tomorrow == *release.ParsedDate {
-							_, _ = s.ChannelMessageSend(channelData.ChannelID, release.Name+" is releasing tomorrow!")
+							MessageSender.SendMessage(channelData.ChannelID, release.Name+" is releasing tomorrow!")
 						}
 					}
 				} else {
@@ -193,7 +210,7 @@ func (rh *ReleaseHandler) ScheduledTask(s *discordgo.Session) {
 
 			if len(tempChannelReleases) != len(channelData.Releases) {
 				channelData.Releases = tempChannelReleases
-				rh.updateChannelPin(s, channelData.ChannelID)
+				rh.updateChannelPin(channelData.ChannelID)
 				changed = true
 			}
 		}
@@ -223,7 +240,7 @@ func (rh *ReleaseHandler) writeData() {
 	}
 }
 
-func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data string) {
+func (rh *ReleaseHandler) add(channelID string, data string) {
 	match := rh.addMatcher.FindStringSubmatch(data)
 	if match != nil {
 		releaseInfo := releaseData{}
@@ -234,7 +251,7 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 		if releaseInfo.ParsedDate != nil {
 			now := time.Now()
 			if !now.Before(*releaseInfo.ParsedDate) {
-				_, _ = s.ChannelMessageSend(channelID, "Error: Specified date \""+match[1]+"\" is in the past!")
+				MessageSender.SendMessage(channelID, "Error: Specified date \""+match[1]+"\" is in the past!")
 				return
 			}
 		}
@@ -248,17 +265,17 @@ func (rh *ReleaseHandler) add(s *discordgo.Session, channelID string, data strin
 		sort.Stable(byReleaseDate(channel.Releases))
 
 		rh.writeData()
-		rh.updateChannelPin(s, channelID)
-		_, _ = s.ChannelMessageSend(channelID, "Added "+releaseInfo.Name+" to releases, releasing "+releaseInfo.ReleaseDate)
+		rh.updateChannelPin(channelID)
+		MessageSender.SendMessage(channelID, "Added "+releaseInfo.Name+" to releases, releasing "+releaseInfo.ReleaseDate)
 	} else {
-		_, _ = s.ChannelMessageSend(channelID, "Invalid add syntax")
+		MessageSender.SendMessage(channelID, "Invalid add syntax")
 	}
 
 }
 
-func (rh *ReleaseHandler) list(s *discordgo.Session, channelID string) {
+func (rh *ReleaseHandler) list(channelID string) {
 	formattedChannelRelease := rh.formatChannelReleases(channelID)
-	_, _ = s.ChannelMessageSend(channelID, formattedChannelRelease)
+	MessageSender.SendMessage(channelID, formattedChannelRelease)
 }
 
 func (rh *ReleaseHandler) formatChannelReleases(channelID string) string {
@@ -284,7 +301,7 @@ func (rh *ReleaseHandler) formatChannelReleases(channelID string) string {
 	return list
 }
 
-func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data string) {
+func (rh *ReleaseHandler) edit(channelID string, data string) {
 	match := rh.editMatcher.FindStringSubmatch(data)
 	if match != nil {
 		index, err := strconv.Atoi(match[1])
@@ -301,32 +318,32 @@ func (rh *ReleaseHandler) edit(s *discordgo.Session, channelID string, data stri
 						rh.updateReleaseTime(entry)
 						sort.Stable(byReleaseDate(slice))
 
-						rh.updateChannelPin(s, channelData.ChannelID)
+						rh.updateChannelPin(channelData.ChannelID)
 						rh.writeData()
-						_, _ = s.ChannelMessageSend(channelID, "Successfully updated release date for "+entryName)
+						MessageSender.SendMessage(channelID, "Successfully updated release date for "+entryName)
 					} else {
 						//invalid index provided
-						_, _ = s.ChannelMessageSend(channelID, "Invalid ID specified")
+						MessageSender.SendMessage(channelID, "Invalid ID specified")
 					}
 				} else {
 					//Channel has no releases?
-					_, _ = s.ChannelMessageSend(channelID, "No releases currently available to edit")
+					MessageSender.SendMessage(channelID, "No releases currently available to edit")
 				}
 			} else {
 				//Channel data doesn't exist (yet), hence no releases to edit
-				_, _ = s.ChannelMessageSend(channelID, "No releases currently available to edit")
+				MessageSender.SendMessage(channelID, "No releases currently available to edit")
 			}
 		} else {
 			//error parsing index
-			_, _ = s.ChannelMessageSend(channelID, "Could not parse ID: "+match[1])
+			MessageSender.SendMessage(channelID, "Could not parse ID: "+match[1])
 		}
 	} else {
 		//Invalid command format!
-		_, _ = s.ChannelMessageSend(channelID, "Invalid parameters for /rw edit, please see help")
+		MessageSender.SendMessage(channelID, "Invalid parameters for /rw edit, please see help")
 	}
 }
 
-func (rh *ReleaseHandler) delete(s *discordgo.Session, channelID string, data string) {
+func (rh *ReleaseHandler) delete(channelID string, data string) {
 	match := rh.deleteMatcher.FindStringSubmatch(data)
 	if match != nil {
 		index, err := strconv.Atoi(match[1])
@@ -337,23 +354,23 @@ func (rh *ReleaseHandler) delete(s *discordgo.Session, channelID string, data st
 						removedRelease := channelData.Releases[index]
 						fmt.Println("Removing " + removedRelease.Name + " (" + removedRelease.ReleaseDate + ") from releases")
 						channelData.Releases = append(channelData.Releases[:index], channelData.Releases[index+1:]...)
-						rh.updateChannelPin(s, channelData.ChannelID)
+						rh.updateChannelPin(channelData.ChannelID)
 						rh.writeData()
-						_, _ = s.ChannelMessageSend(channelID, "Removed "+removedRelease.Name+" from releases")
+						MessageSender.SendMessage(channelID, "Removed "+removedRelease.Name+" from releases")
 					} else {
-						_, _ = s.ChannelMessageSend(channelID, "Error: Invalid ID specified")
+						MessageSender.SendMessage(channelID, "Error: Invalid ID specified")
 					}
 				} else {
-					_, _ = s.ChannelMessageSend(channelID, "Error: Channel does not have any releases to delete!")
+					MessageSender.SendMessage(channelID, "Error: Channel does not have any releases to delete!")
 				}
 			} else {
-				_, _ = s.ChannelMessageSend(channelID, "Error: Channel does not have any releases to delete!")
+				MessageSender.SendMessage(channelID, "Error: Channel does not have any releases to delete!")
 			}
 		}
 	}
 }
 
-func (rh *ReleaseHandler) help(s *discordgo.Session, channelID string) {
+func (rh *ReleaseHandler) help(channelID string) {
 	helpMessage := "The following commands are supported by /rw:\n"
 	helpMessage += "/rw add <date> <release> - Adds the following release for tracking.\n"
 	helpMessage += "\t<date> can be in the following formats: MM/DD/YYYY MM-DD-YY\n"
@@ -365,7 +382,7 @@ func (rh *ReleaseHandler) help(s *discordgo.Session, channelID string) {
 	helpMessage += "/rw delete <id> - Delete the specified release!\n\teg: /rw delete 5\n"
 	helpMessage += "/rw help - This output here!"
 
-	_, _ = s.ChannelMessageSend(channelID, helpMessage)
+	MessageSender.SendMessage(channelID, helpMessage)
 }
 
 func (rh *ReleaseHandler) updateReleaseTime(rel *releaseData) {
@@ -392,7 +409,7 @@ func (rh *ReleaseHandler) updateReleaseTime(rel *releaseData) {
 	}
 }
 
-func (rh *ReleaseHandler) updateChannelPin(s *discordgo.Session, channelID string) {
+func (rh *ReleaseHandler) updateChannelPin(channelID string) {
 	message := rh.formatChannelReleases(channelID)
 
 	channel, ok := rh.releases[channelID]
@@ -401,14 +418,14 @@ func (rh *ReleaseHandler) updateChannelPin(s *discordgo.Session, channelID strin
 	}
 
 	if channel.PinnedMessageID != "" {
-		_, _ = s.ChannelMessageEdit(channel.ChannelID, channel.PinnedMessageID, message)
+		MessageSender.EditMessage(channel.ChannelID, channel.PinnedMessageID, message)
 	} else {
 		//We need to blast out our release entries and then set our message id for this channel
 		//If we error, do *not* set our pin message id
-		sentMessage, error := s.ChannelMessageSend(channelID, message)
+		sentMessage, error := MessageSender.SendMessage(channelID, message)
 		if error == nil {
 			id := sentMessage.ID
-			pinError := s.ChannelMessagePin(channel.ChannelID, id)
+			pinError := MessageSender.PinMessage(channel.ChannelID, id)
 			if pinError == nil {
 				channel.PinnedMessageID = id
 			}

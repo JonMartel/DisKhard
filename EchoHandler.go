@@ -10,24 +10,25 @@ import (
 type EchoHandler struct {
 }
 
-//Init Nothing to do here
-func (eh *EchoHandler) Init() {
-
+//Init Spins up our channel handling
+func (eh *EchoHandler) Init(m chan *discordgo.MessageCreate) {
+	go func() {
+		for {
+			select {
+			case message := <-m:
+				if message != nil {
+					fmt.Printf("Message: %s\n", message.Content)
+				} else {
+					return
+				}
+			}
+		}
+	}()
 }
 
 //GetName returns name of handler
 func (eh *EchoHandler) GetName() string {
 	return "Echo Handler"
-}
-
-//HandleMessage echoes the messages seen to stdout
-func (eh *EchoHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	fmt.Printf("Message: %s\n", m.Content)
-}
-
-//ScheduledTask enmpty func to comply with interface reqs
-func (eh *EchoHandler) ScheduledTask(s *discordgo.Session) {
-	//nothing
 }
 
 //Help Gets info about this release handler

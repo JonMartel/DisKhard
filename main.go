@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"regexp"
 	"syscall"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -20,12 +19,17 @@ type Configuration struct {
 }
 
 var handlers []MessageHandler
+var handlerChannels []chan *discordgo.MessageCreate
 var nameRegex regexp.Regexp
+
+//var session *discordgo.Session
+
+var MessageSender Messager
 
 func main() {
 
 	configuration := Init()
-	dg, err := discordgo.New("Bot " + configuration.Token)
+	session, err := discordgo.New("Bot " + configuration.Token)
 	if err != nil {
 		fmt.Println("Error creating Discord session: ", err)
 		os.Exit(1)
@@ -33,50 +37,45 @@ func main() {
 
 	fmt.Println("Using token: " + configuration.Token)
 
-	handlers = setupHandlers()
+	handlers, handlerChannels = setupHandlers()
 	regexPattern := "\\!" + configuration.Name
 	nameRegex = *regexp.MustCompile(regexPattern)
 
-	//Daily Checks
-	minuteSchedule := time.NewTicker(time.Minute)
-	defer minuteSchedule.Stop()
+	session.AddHandler(ready)
+	session.AddHandler(messageCreate)
 
-	dg.AddHandler(ready)
-	dg.AddHandler(messageCreate)
-
-	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAllWithoutPrivileged)
-	err = dg.Open()
-	defer dg.Close()
+	session.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAllWithoutPrivileged)
+	MessageSender.Init(session)
+	err = session.Open()
+	defer session.Close()
 	if err != nil {
 		fmt.Println("Error opening Discord session: ", err)
 		return
 	}
 
 	//Diagnostic info dump
-	guilds, err := dg.UserGuilds(100, "", "")
-	for _, guild := range guilds {
-		fmt.Println("Guild: " + guild.Name)
-		emojis, err := dg.GuildEmojis(guild.ID)
-		if err == nil {
-			for _, emoji := range emojis {
-				fmt.Println(emoji.Name + " : " + emoji.ID)
+	guilds, err := session.UserGuilds(100, "", "")
+	if err == nil {
+		for _, guild := range guilds {
+			fmt.Println("Guild: " + guild.Name)
+			emojis, err := session.GuildEmojis(guild.ID)
+			if err == nil {
+				for _, emoji := range emojis {
+					fmt.Println(emoji.Name + " : " + emoji.ID)
+				}
 			}
 		}
 	}
 
 	// Wait here until CTRL-C or other term signal is received.
-	fmt.Println("Diskhard is now running. Press CTRL-C to exit.")
+	fmt.Println("DisKhard is now running. Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 
-	//Run until we're done! Handle scheduled tasks as needed
-	for {
-		select {
-		case <-sc:
-			return
-		case <-minuteSchedule.C:
-			scheduledTask(dg)
-		}
+	//Run until we're done!
+	<-sc
+	for _, handlerChannel := range handlerChannels {
+		handlerChannel <- nil
 	}
 }
 
@@ -99,25 +98,28 @@ func Init() Configuration {
 	return configuration
 }
 
-func setupHandlers() []MessageHandler {
+func setupHandlers() ([]MessageHandler, []chan *discordgo.MessageCreate) {
 	slices := []MessageHandler{
-		//&EchoHandler{},
+		&EchoHandler{},
 		&AlternatingCaseHandler{},
 		&ReleaseHandler{},
 		&ReactionHandler{},
 		&ImageHandler{},
 		&ReminderHandler{},
-		//&FortuneHandler{},
+		&FortuneHandler{},
 		//&VoiceHandler{},
 		&IPHandler{},
 	}
 
+	handlerChannels := make([]chan *discordgo.MessageCreate, 0)
 	for _, handler := range slices {
-		handler.Init()
+		handlerChannel := make(chan *discordgo.MessageCreate)
+		handler.Init(handlerChannel)
+		handlerChannels = append(handlerChannels, handlerChannel)
 		fmt.Println("Initialized ", handler.GetName())
 	}
 
-	return slices
+	return slices, handlerChannels
 }
 
 func ready(s *discordgo.Session, event *discordgo.Ready) {
@@ -135,16 +137,9 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if nameRegex.MatchString(m.Content) {
 		showHandlerInfo(s, m.ChannelID)
 	} else {
-		for _, handler := range handlers {
-			handler.HandleMessage(s, m)
+		for _, handlerChannel := range handlerChannels {
+			handlerChannel <- m
 		}
-	}
-}
-
-//scheduledTask handles passing our scheduled tasks to our handlers
-func scheduledTask(s *discordgo.Session) {
-	for _, handler := range handlers {
-		handler.ScheduledTask(s)
 	}
 }
 

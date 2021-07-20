@@ -22,7 +22,7 @@ type reactionData struct {
 }
 
 //Init read in our configured Reaction keywords
-func (rh *ReactionHandler) Init() {
+func (rh *ReactionHandler) Init(m chan *discordgo.MessageCreate) {
 	rh.reactionMap = make(map[*regexp.Regexp]string)
 
 	// Get configuration
@@ -41,6 +41,17 @@ func (rh *ReactionHandler) Init() {
 		}
 	}
 
+	//Now, spin up our message handling thread
+	go func() {
+		for {
+			message := <-m
+			if message != nil {
+				rh.handleMessage(message)
+			} else {
+				return
+			}
+		}
+	}()
 }
 
 //GetName returns name of handler
@@ -49,20 +60,12 @@ func (rh *ReactionHandler) GetName() string {
 }
 
 //HandleMessage echoes the messages seen to stdout
-func (rh *ReactionHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	for regex, Reaction := range rh.reactionMap {
+func (rh *ReactionHandler) handleMessage(m *discordgo.MessageCreate) {
+	for regex, reaction := range rh.reactionMap {
 		if regex.MatchString(m.Content) {
-			err := s.MessageReactionAdd(m.ChannelID, m.ID, Reaction)
-			if err != nil {
-				fmt.Println("Failed to add reaction", err)
-			}
+			MessageSender.React(m.ChannelID, m.ID, reaction)
 		}
 	}
-}
-
-//ScheduledTask enmpty func to comply with interface reqs
-func (rh *ReactionHandler) ScheduledTask(s *discordgo.Session) {
-	//nothing
 }
 
 //Help Gets info about this release handler

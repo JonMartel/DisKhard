@@ -21,7 +21,7 @@ type FortuneHandler struct {
 const fortuneFile = "./fortuneData.json"
 
 //Init Nothing to do here
-func (fh *FortuneHandler) Init() {
+func (fh *FortuneHandler) Init(m chan *discordgo.MessageCreate) {
 	//If fortune's usable...
 	_, err := exec.Command("fortune").Output()
 	if err != nil {
@@ -35,6 +35,9 @@ func (fh *FortuneHandler) Init() {
 		if err == nil {
 			fmt.Println("Reading saved release data")
 			err = json.Unmarshal(fileData, &chans)
+			if err != nil {
+				fmt.Println("Error unmarshalling json", err)
+			}
 			fh.channelIDs = chans
 		}
 
@@ -42,7 +45,26 @@ func (fh *FortuneHandler) Init() {
 		fh.fortuneRegex = regexp.MustCompile(`^/fortune$`)
 	}
 
+	minuteSchedule := time.NewTicker(time.Minute)
+	defer minuteSchedule.Stop()
+
 	fh.active = (err == nil)
+
+	go func() {
+		for {
+			select {
+			case message := <-m:
+				if message != nil {
+					fh.handleMessage(message)
+				} else {
+					return
+				}
+			case <-minuteSchedule.C:
+				fh.scheduledTask()
+			}
+		}
+	}()
+
 }
 
 //GetName returns name of handler
@@ -51,29 +73,29 @@ func (fh *FortuneHandler) GetName() string {
 }
 
 //HandleMessage echoes the messages seen to stdout
-func (fh *FortuneHandler) HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+func (fh *FortuneHandler) handleMessage(m *discordgo.MessageCreate) {
 	if fh.active {
 		if fh.fortuneRegex.MatchString(m.Content) {
 			channelID := make([]string, 1)
 			channelID[0] = m.ChannelID
-			fh.generateFortune(s, channelID)
+			fh.generateFortune(channelID)
 		}
 	}
 }
 
 //ScheduledTask enmpty func to comply with interface reqs
-func (fh *FortuneHandler) ScheduledTask(s *discordgo.Session) {
+func (fh *FortuneHandler) scheduledTask() {
 	if fh.active {
 		current := time.Now()
 
 		//At 9, let's fortune!
 		if current.Hour() == 9 && current.Minute() == 0 {
-			fh.generateFortune(s, fh.channelIDs)
+			fh.generateFortune(fh.channelIDs)
 		}
 	}
 }
 
-func (fh *FortuneHandler) generateFortune(s *discordgo.Session, channelIDs []string) {
+func (fh *FortuneHandler) generateFortune(channelIDs []string) {
 	command := "fortune"
 
 	//Special frogtime for wednesday?
@@ -83,7 +105,7 @@ func (fh *FortuneHandler) generateFortune(s *discordgo.Session, channelIDs []str
 	output := string(out)
 	if err == nil {
 		for _, channelID := range channelIDs {
-			_, _ = s.ChannelMessageSend(channelID, output)
+			MessageSender.SendMessage(channelID, output)
 		}
 	}
 }

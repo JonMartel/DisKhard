@@ -4,9 +4,7 @@ import "github.com/bwmarrin/discordgo"
 
 //MessageHandler Defines the functions all handlers should implement
 type MessageHandler interface {
-	Init()
+	Init(m chan *discordgo.MessageCreate)
 	GetName() string
-	HandleMessage(s *discordgo.Session, m *discordgo.MessageCreate)
-	ScheduledTask(s *discordgo.Session)
 	Help() string
 }
