@@ -45,12 +45,11 @@ func (fh *FortuneHandler) Init(m chan *discordgo.MessageCreate) {
 		fh.fortuneRegex = regexp.MustCompile(`^/fortune$`)
 	}
 
-	minuteSchedule := time.NewTicker(time.Minute)
-	defer minuteSchedule.Stop()
-
 	fh.active = (err == nil)
 
 	go func() {
+		minuteSchedule := time.NewTicker(time.Minute)
+		defer minuteSchedule.Stop()
 		for {
 			select {
 			case message := <-m:

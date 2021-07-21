@@ -78,11 +78,10 @@ func (ih *ImageHandler) Init(m chan *discordgo.MessageCreate) {
 		}
 	}
 
-	//schedule to check for when we need to do stuff!
-	minuteSchedule := time.NewTicker(time.Minute)
-	defer minuteSchedule.Stop()
-
 	go func() {
+		//schedule to check for when we need to do stuff!
+		minuteSchedule := time.NewTicker(time.Minute)
+		defer minuteSchedule.Stop()
 		for {
 			select {
 			case message := <-m:

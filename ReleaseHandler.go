@@ -128,11 +128,10 @@ func (rh *ReleaseHandler) Init(m chan *discordgo.MessageCreate) {
 		}
 	}
 
-	//Now, get our schedule ready
-	minuteSchedule := time.NewTicker(time.Minute)
-	defer minuteSchedule.Stop()
-
 	go func() {
+		//Now, get our schedule ready
+		minuteSchedule := time.NewTicker(time.Minute)
+		defer minuteSchedule.Stop()
 		for {
 			select {
 			case message := <-m:

@@ -36,13 +36,6 @@ type channelReminderData struct {
 	Reminders []*Reminder
 }
 
-/*
-
-minuteSchedule := time.NewTicker(time.Minute)
-	defer minuteSchedule.Stop()
-
-*/
-
 const remindCommand string = "/remind"
 const reminderDataFile = "./ReminderData.json"
 
@@ -91,11 +84,9 @@ func (rh *ReminderHandler) Init(m chan *discordgo.MessageCreate) {
 		}
 	}
 
-	//Now, get our schedule ready
-	minuteSchedule := time.NewTicker(time.Minute)
-	defer minuteSchedule.Stop()
-
 	go func() {
+		minuteSchedule := time.NewTicker(time.Minute)
+		defer minuteSchedule.Stop()
 		for {
 			select {
 			case message := <-m:
