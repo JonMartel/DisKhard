@@ -100,13 +100,13 @@ func Init() Configuration {
 
 func setupHandlers() ([]MessageHandler, []chan *discordgo.MessageCreate) {
 	slices := []MessageHandler{
-		&EchoHandler{},
+		//&EchoHandler{},
 		&AlternatingCaseHandler{},
 		&ReleaseHandler{},
 		&ReactionHandler{},
 		&ImageHandler{},
 		&ReminderHandler{},
-		&FortuneHandler{},
+		//&FortuneHandler{},
 		//&VoiceHandler{},
 		&IPHandler{},
 	}
