@@ -342,16 +342,15 @@ func (ih *ImageHandler) listFiles(dir string) ([]string, error) {
 func (ih *ImageHandler) displayMultiple(channelID string, data *imageData, imageList []string) {
 	//Better than converting to float64's imo
 	//but there must be a better way of getting the minimum, right?
-	imageSlice := (imageList)
-	showCount := len(imageSlice) - (data.Current)
+	showCount := len(imageList) - (data.Current)
 	if showCount > (data.Multiplier) {
 		showCount = (data.Multiplier)
-
-		for i := 0; i < showCount; i++ {
-			MessageSender.SendFile(channelID, imageList[data.Current])
-			data.Current++
-		}
 	}
 
+	for i := 0; i < showCount; i++ {
+		MessageSender.SendFile(channelID, imageList[data.Current])
+		data.Current++
+	}
+	
 	//Cleanup is handled by the respective callers, as they need to handle clean-up differently
 }
