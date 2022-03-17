@@ -36,7 +36,7 @@ func (ach *AlternatingCaseHandler) GetName() string {
 
 //HandleMessage echoes the messages seen back, but aLtErNaTiNg CaSe
 func (ach *AlternatingCaseHandler) handleMessage(m *discordgo.MessageCreate) {
-	match, _ := regexp.MatchString(acCommand+"(.+)", m.Content)
+	match, _ := regexp.MatchString("^"+acCommand+"(.+)", m.Content)
 	if match == true {
 		//Alternate case the important bits
 		sliced := []rune(m.Content[4:len(m.Content)])
