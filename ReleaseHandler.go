@@ -64,7 +64,9 @@ func (s byReleaseDate) Less(i, j int) bool {
 		jQuarter, jYear, jErr := extractQuarterInfo(jMatches[1], jMatches[2])
 
 		if iErr == nil && jErr == nil {
-			return (iYear < jYear || (iYear == jYear && iQuarter < jQuarter) || s[i].Name < s[j].Name)
+			return (iYear < jYear ||
+				(iYear == jYear && iQuarter < jQuarter) ||
+				(iYear == jYear && iQuarter == jQuarter && s[i].Name < s[j].Name))
 		} else if iErr != nil || jErr != nil {
 			return iErr == nil
 		}
