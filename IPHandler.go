@@ -36,6 +36,9 @@ func (iph *IPHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCrea
 	})
 }
 
+func (iph *IPHandler) Message(s *discordgo.Session, i *discordgo.MessageCreate) {
+}
+
 /*
 {
   "ip": "173.48.36.225",

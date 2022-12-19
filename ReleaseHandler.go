@@ -234,6 +234,10 @@ func (rh *ReleaseHandler) Handler(s *discordgo.Session, i *discordgo.Interaction
 	})
 }
 
+func (eh *ReleaseHandler) Message(s *discordgo.Session, m *discordgo.MessageCreate) {
+	//nothing to do here
+}
+
 func (rh *ReleaseHandler) scheduledTask() {
 	currentTime := time.Now()
 	cdate := time.Date(currentTime.Year(), currentTime.Month(), currentTime.Day(), 0, 0, 0, 0, time.Local)

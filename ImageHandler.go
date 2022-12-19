@@ -219,6 +219,10 @@ func (ih *ImageHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCr
 	})
 }
 
+func (ih *ImageHandler) Message(s *discordgo.Session, i *discordgo.MessageCreate) {
+	//Nothing to do here
+}
+
 // ScheduledTask Handle our scheduled release notifications
 func (ih *ImageHandler) scheduledTask() {
 	currentTime := time.Now()
@@ -358,9 +362,10 @@ func (ih *ImageHandler) display(channelID string, data *imageData) {
 		if len(imageList) <= data.Current {
 			if data.Repeat {
 				data.Current = 0
-			} else {
-				//"Done! Completed all images for image block: " + data.Dir
 			}
+			/*else {
+				//"Done! Completed all images for image block: " + data.Dir
+			}*/
 		}
 		ih.writeData()
 	}

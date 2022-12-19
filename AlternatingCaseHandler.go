@@ -43,6 +43,10 @@ func (ach *AlternatingCaseHandler) Handler(s *discordgo.Session, i *discordgo.In
 	})
 }
 
+func (ach *AlternatingCaseHandler) Message(s *discordgo.Session, i *discordgo.MessageCreate) {
+	//Nothing here
+}
+
 func (ach *AlternatingCaseHandler) alternateCase(sliced []rune) string {
 	uppered := false
 

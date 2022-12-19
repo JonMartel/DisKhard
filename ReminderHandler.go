@@ -198,24 +198,9 @@ func (rh *ReminderHandler) Handler(s *discordgo.Session, i *discordgo.Interactio
 	})
 }
 
-/*
-// HandleMessage Adds/Edits/Removes reminders based on message input
-func (rh *ReminderHandler) handleMessage(m *discordgo.MessageCreate) {
-	submatches := rh.matcher.FindStringSubmatch(m.Content)
-	if submatches != nil {
-		command := submatches[1]
-		switch command {
-		case "add":
-			rh.add(m.ChannelID, m.Author.ID, submatches[2])
-		case "addme":
-			rh.addUser(m.ChannelID, m.Author.ID, submatches[2])
-		case "removeme":
-			rh.removeUser(m.ChannelID, m.Author.ID, submatches[2])
-		case "list":
-			rh.list(m.ChannelID)
-	}
+func (rh *ReminderHandler) Message(s *discordgo.Session, i *discordgo.MessageCreate) {
+	//Nothing to do here
 }
-*/
 
 func (rh *ReminderHandler) scheduledTask() {
 	currentTime := time.Now()
@@ -446,22 +431,6 @@ func (rh *ReminderHandler) formatDayActive(day bool) string {
 	}
 
 	return "[   ]"
-}
-
-func (rh *ReminderHandler) help(channelID string) {
-	helpMessage := "The following commands are supported by /rw:\n"
-	helpMessage += remindCommand + " add <time> <days> <Reminder> - Adds the following Reminder for tracking.\n"
-	helpMessage += "\t<time> is in HH:MM format using 24-hour time\n"
-	helpMessage += "\t<days> is a string with any of MTWRF\n"
-	helpMessage += "\teg: " + remindCommand + " add 20:45 TWRF Anime Time\n"
-	helpMessage += remindCommand + " list - Lists all channel reminders\n"
-	helpMessage += remindCommand + " addme <id> - Add yourself as a notifyee of the specified reminder\n"
-	helpMessage += "\t<id> can be obtained from /rw list\n"
-	helpMessage += "\teg: " + remindCommand + " addme 12\n"
-	helpMessage += remindCommand + " removeme <id> - Remove yourself as a notifyee of the specified reminder\n"
-	helpMessage += remindCommand + " help - This output here!"
-
-	MessageSender.SendMessage(channelID, helpMessage)
 }
 
 func (rh *ReminderHandler) initChannel(channelID string) *channelReminderData {

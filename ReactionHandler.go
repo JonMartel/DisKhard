@@ -47,11 +47,11 @@ func (rh *ReactionHandler) GetApplicationCommand() *discordgo.ApplicationCommand
 }
 
 func (rh *ReactionHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	//TODO
+	//Empty, unused
 }
 
 // HandleMessage echoes the messages seen to stdout
-func (rh *ReactionHandler) handleMessage(m *discordgo.MessageCreate) {
+func (rh *ReactionHandler) Message(s *discordgo.Session, m *discordgo.MessageCreate) {
 	for regex, reaction := range rh.reactionMap {
 		if regex.MatchString(m.Content) {
 			MessageSender.React(m.ChannelID, m.ID, reaction)

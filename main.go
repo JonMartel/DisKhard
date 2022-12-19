@@ -39,6 +39,7 @@ func main() {
 
 	session.AddHandler(ready)
 	session.AddHandler(interaction)
+	session.AddHandler(message)
 
 	session.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAllWithoutPrivileged)
 	MessageSender.Init(session)
@@ -53,7 +54,6 @@ func main() {
 	//handling more than 100 at this time. Known limitation, y'know?)
 	guilds, err := session.UserGuilds(100, "", "")
 	appId := session.State.User.ID
-	fmt.Println("My id is maybe: " + appId)
 	if err == nil {
 		fmt.Println("Adding commands...")
 		for _, guild := range guilds {
@@ -150,5 +150,11 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 func interaction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if h, ok := handlerMap[i.ApplicationCommandData().Name]; ok {
 		h.Handler(s, i)
+	}
+}
+
+func message(s *discordgo.Session, m *discordgo.MessageCreate) {
+	for _, h := range handlers {
+		h.Message(s, m)
 	}
 }

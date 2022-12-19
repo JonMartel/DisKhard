@@ -7,4 +7,5 @@ type MessageHandler interface {
 	Init()
 	GetApplicationCommand() *discordgo.ApplicationCommand
 	Handler(s *discordgo.Session, i *discordgo.InteractionCreate)
+	Message(s *discordgo.Session, i *discordgo.MessageCreate)
 }
