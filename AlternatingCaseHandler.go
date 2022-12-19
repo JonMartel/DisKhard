@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"unicode"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,35 +17,21 @@ func (ach *AlternatingCaseHandler) Init() {
 }
 
 func (ach *AlternatingCaseHandler) GetApplicationCommand() *discordgo.ApplicationCommand {
-	command := discordgo.ApplicationCommand{
-		Name:        "ac",
-		Description: "Display a message using alternating case",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "message",
-				Description: "Message to alternate case",
-				Required:    true,
-			},
-		},
-	}
-
-	return &command
+	return nil
 }
 
 func (ach *AlternatingCaseHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	message := i.ApplicationCommandData().Options[0].StringValue()
-	runed := []rune(message)
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: ach.alternateCase(runed),
-		},
-	})
+	//nothing to do here
 }
 
-func (ach *AlternatingCaseHandler) Message(s *discordgo.Session, i *discordgo.MessageCreate) {
-	//Nothing here
+func (ach *AlternatingCaseHandler) Message(s *discordgo.Session, m *discordgo.MessageCreate) {
+	match, _ := regexp.MatchString("^/ac (.+)", m.Content)
+	if match {
+		//Alternate case the important bits
+		sliced := []rune(m.Content[4:len(m.Content)])
+		MessageSender.SendMessage(m.ChannelID, ach.alternateCase(sliced))
+		MessageSender.DeleteMessage(m.ChannelID, m.ID)
+	}
 }
 
 func (ach *AlternatingCaseHandler) alternateCase(sliced []rune) string {
