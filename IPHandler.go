@@ -8,29 +8,32 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-//IPHandler Echoes the public IP
+// IPHandler Echoes the public IP
 type IPHandler struct {
 }
 
-//Init Nothing to do here
-func (iph *IPHandler) Init(m chan *discordgo.MessageCreate) {
-	go func() {
-		for {
-			select {
-			case message := <-m:
-				if message != nil {
-					iph.handleMessage(message)
-				} else {
-					return
-				}
-			}
-		}
-	}()
+// Init Nothing to do here
+func (iph *IPHandler) Init() {
+	//nothin'!
 }
 
-//GetName returns name of handler
-func (iph *IPHandler) GetName() string {
-	return "IP Handler"
+func (iph *IPHandler) GetApplicationCommand() *discordgo.ApplicationCommand {
+	command := discordgo.ApplicationCommand{
+		Name:        "whats-my-ip",
+		Description: "Asks the bot to disclose it's publicly-facing IP",
+	}
+
+	return &command
+}
+
+func (iph *IPHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	ip := iph.getIP()
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "My publicly accessible IP is: " + ip,
+		},
+	})
 }
 
 /*
@@ -61,34 +64,20 @@ type Message struct {
 	Readme   string `json:"readme"`
 }
 
-//handleMessage echoes the messages seen to stdout
-func (iph *IPHandler) handleMessage(m *discordgo.MessageCreate) {
-	if m.Content == "/ip" {
-		var myClient = &http.Client{Timeout: 1 * time.Second}
-		resp, err := myClient.Get("http://ipinfo.io")
-		if err == nil {
-			defer resp.Body.Close()
-			message := new(Message)
+func (iph *IPHandler) getIP() string {
+	var myClient = &http.Client{Timeout: 1 * time.Second}
+	resp, err := myClient.Get("http://ipinfo.io")
+	if err == nil {
+		defer resp.Body.Close()
+		message := new(Message)
 
-			decoder := json.NewDecoder(resp.Body)
-			err = decoder.Decode(message)
-			if err != nil {
-				print("Failed to extract ipinfo")
-			} else {
-				MessageSender.SendMessage(m.ChannelID, "My publicly accessible IP is: "+message.IP)
-				if err != nil {
-					print("Error sending message")
-				}
-			}
-			return
+		decoder := json.NewDecoder(resp.Body)
+		err = decoder.Decode(message)
+		if err != nil {
+			print("Failed to extract ipinfo")
+		} else {
+			return message.IP
 		}
-
-		MessageSender.SendMessage(m.ChannelID, "Error obtaining publicly accessible IP")
 	}
-
-}
-
-//Help Gets info about this release handler
-func (iph *IPHandler) Help() string {
-	return "/ip - Display the current publicly accessible IP"
+	return ""
 }

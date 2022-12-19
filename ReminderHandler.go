@@ -11,7 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-//ReminderHandler Echoes messages to stdout
+// ReminderHandler Echoes messages to stdout
 type ReminderHandler struct {
 	matcher              regexp.Regexp
 	addMatcher           regexp.Regexp
@@ -39,8 +39,8 @@ type channelReminderData struct {
 const remindCommand string = "/remind"
 const reminderDataFile = "./ReminderData.json"
 
-//Init compiles regexp and loads in saved information
-func (rh *ReminderHandler) Init(m chan *discordgo.MessageCreate) {
+// Init compiles regexp and loads in saved information
+func (rh *ReminderHandler) Init() {
 	rh.matcher = *regexp.MustCompile(`^\` + remindCommand + `\s+(\w+)\s*(.*)$`)
 	rh.addMatcher = *regexp.MustCompile(`^(\d{1,2}):(\d\d) ([U日]?[M月]?[T火]?[W水]?[R木]?[F金]?[S土]?) (.*)$`)
 	rh.addRemoveUserMatcher = *regexp.MustCompile(`^(\d+)$`)
@@ -88,26 +88,118 @@ func (rh *ReminderHandler) Init(m chan *discordgo.MessageCreate) {
 		minuteSchedule := time.NewTicker(time.Minute)
 		defer minuteSchedule.Stop()
 		for {
-			select {
-			case message := <-m:
-				if message != nil {
-					rh.handleMessage(message)
-				} else {
-					return
-				}
-			case <-minuteSchedule.C:
-				rh.scheduledTask()
-			}
+			<-minuteSchedule.C
+			rh.scheduledTask()
 		}
 	}()
 }
 
-//GetName returns our name
-func (rh *ReminderHandler) GetName() string {
-	return "Reminder Handler"
+func (rh *ReminderHandler) GetApplicationCommand() *discordgo.ApplicationCommand {
+	zero := (float64)(0)
+	command := discordgo.ApplicationCommand{
+		Name:        "reminder",
+		Description: "Create and register for reminders",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Name:        "list",
+				Description: "Display all current reminders",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+			},
+			{
+				Name:        "create",
+				Description: "Create a new reminder",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "name",
+						Description: "Name of the reminder",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "days",
+						Description: "Days to send reminder (Any combination of UMTWRFS日月火水木金土)",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "hour",
+						Description: "Hour (0-23)",
+						Required:    true,
+						MinValue:    &zero,
+						MaxValue:    23,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "minute",
+						Description: "Minute (0-59)",
+						Required:    true,
+						MinValue:    &zero,
+						MaxValue:    59,
+					},
+				},
+			},
+			{
+				Name:        "subscribe",
+				Description: "Subscribe to a reminder",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "index",
+						Description: "Reminder index",
+						Required:    true,
+						MinValue:    &zero,
+					},
+				},
+			},
+			{
+				Name:        "unsubscribe",
+				Description: "Unsubscribe from a reminder",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "index",
+						Description: "Reminder index",
+						Required:    true,
+						MinValue:    &zero,
+					},
+				},
+			},
+		},
+	}
+
+	return &command
 }
 
-//HandleMessage Adds/Edits/Removes reminders based on message input
+func (rh *ReminderHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	command := i.ApplicationCommandData().Options[0]
+	options := command.Options
+	content := ""
+
+	switch command.Name {
+	case "create":
+		content = rh.add(i, options)
+	case "subscribe":
+		content = rh.addUser(i, options)
+	case "unsubscribe":
+		content = rh.removeUser(i, options)
+	case "list":
+		content = rh.list(i)
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
+		},
+	})
+}
+
+/*
+// HandleMessage Adds/Edits/Removes reminders based on message input
 func (rh *ReminderHandler) handleMessage(m *discordgo.MessageCreate) {
 	submatches := rh.matcher.FindStringSubmatch(m.Content)
 	if submatches != nil {
@@ -121,15 +213,9 @@ func (rh *ReminderHandler) handleMessage(m *discordgo.MessageCreate) {
 			rh.removeUser(m.ChannelID, m.Author.ID, submatches[2])
 		case "list":
 			rh.list(m.ChannelID)
-		case "help":
-			rh.help(m.ChannelID)
-		default:
-			rh.help(m.ChannelID)
-		}
-
-		MessageSender.DeleteMessage(m.ChannelID, m.ID)
 	}
 }
+*/
 
 func (rh *ReminderHandler) scheduledTask() {
 	currentTime := time.Now()
@@ -155,11 +241,6 @@ func (rh *ReminderHandler) scheduledTask() {
 	}
 }
 
-//Help Gets info about this Reminder handler
-func (rh *ReminderHandler) Help() string {
-	return "/remind : Reminder - Set alarms to ping users!"
-}
-
 func (rh *ReminderHandler) writeData() {
 	//join all the Reminders into a single slice...
 	channelDataSlice := make([]*channelReminderData, 0)
@@ -174,132 +255,119 @@ func (rh *ReminderHandler) writeData() {
 	}
 }
 
-func (rh *ReminderHandler) add(channelID string, user string, data string) {
-	match := rh.addMatcher.FindStringSubmatch(data)
-	if match != nil {
-		if hour, err := strconv.Atoi(match[1]); err == nil {
-			if minute, err := strconv.Atoi(match[2]); err == nil {
+func (rh *ReminderHandler) add(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
+	name := options[0].StringValue()
+	days := options[1].StringValue()
+	hour := options[2].IntValue()
+	minute := options[3].IntValue()
+	user := i.Member.User.ID
 
-				//Let's validate these hour/minute values
-				if hour < 0 || hour > 23 {
-					MessageSender.SendMessage(channelID, "Hour must be between 0 and 23")
-					return
+	message := ""
+
+	//Let's validate these hour/minute values
+	if hour < 0 || hour > 23 {
+		return "Hour must be between 0 and 23"
+	}
+
+	if minute < 0 || minute > 59 {
+		return "Minutes must be between 0 and 59"
+	}
+
+	channel, ok := rh.channelReminders[i.ChannelID]
+	if !ok {
+		channel = rh.initChannel(i.ChannelID)
+	}
+
+	reminder := Reminder{}
+	reminder.Hour = (int)(hour)
+	reminder.Minute = (int)(minute)
+	reminder.Name = name
+	reminder.Days = make([]int, 0)
+
+	for _, letter := range days {
+		if day, ok := rh.dayMap[letter]; ok {
+			reminder.Days = append(reminder.Days, (int)(day))
+		}
+	}
+
+	reminder.Notifyees = make([]string, 0)
+	reminder.Notifyees = append(reminder.Notifyees, user)
+
+	channel.Reminders = append(channel.Reminders, &reminder)
+
+	rh.writeData()
+
+	message = rh.userPingString(user) + " added " + reminder.Name + " reminder"
+
+	return message
+}
+
+func (rh *ReminderHandler) list(i *discordgo.InteractionCreate) string {
+	formattedChannelReminder := rh.formatChannelReminders(i.ChannelID)
+	return formattedChannelReminder
+}
+
+func (rh *ReminderHandler) addUser(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
+	user := i.Member.User.ID
+	index := (int)(options[0].IntValue())
+
+	if channelData, ok := rh.channelReminders[i.ChannelID]; ok {
+		if len(channelData.Reminders) > index && index >= 0 {
+			reminder := channelData.Reminders[index]
+			for _, notifyee := range reminder.Notifyees {
+				if user == notifyee {
+					//Hey, you're already here!
+					return "You're already subscribed to this reminder!"
 				}
+			}
 
-				if minute < 0 || minute > 59 {
-					MessageSender.SendMessage(channelID, "Minutes must be between 0 and 59")
-					return
+			//Not here already, lets add you!
+			reminder.Notifyees = append(reminder.Notifyees, user)
+			rh.writeData()
+			return "Subscribed user " + rh.userPingString(user) + " to reminder"
+		} else {
+			return "That's not a valid reminder!"
+		}
+	} else {
+		return "No reminders for this channel!"
+	}
+}
+
+func (rh *ReminderHandler) removeUser(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
+	user := i.Member.User.ID
+	index := (int)(options[0].IntValue())
+
+	if channelData, ok := rh.channelReminders[i.ChannelID]; ok {
+
+		if len(channelData.Reminders) > index && index >= 0 {
+			reminder := channelData.Reminders[index]
+			var removeIndex int = -1
+			for x, notifyee := range reminder.Notifyees {
+				if notifyee == user {
+					removeIndex = x
+					break
 				}
+			}
 
-				channel, ok := rh.channelReminders[channelID]
-				if !ok {
-					channel = rh.initChannel(channelID)
-				}
-
-				reminder := Reminder{}
-				reminder.Hour = hour
-				reminder.Minute = minute
-				reminder.Name = match[4]
-				reminder.Days = make([]int, 0)
-
-				for _, letter := range match[3] {
-					if day, ok := rh.dayMap[letter]; ok {
-						reminder.Days = append(reminder.Days, (int)(day))
-					}
-				}
-
-				reminder.Notifyees = make([]string, 0)
-				reminder.Notifyees = append(reminder.Notifyees, user)
-
-				channel.Reminders = append(channel.Reminders, &reminder)
+			if removeIndex == -1 {
+				//You're not in this notification list!
+				return "You're not registered as a subscriber of this reminder!"
+			} else {
+				currentLength := len(reminder.Notifyees)
+				//Swap the last element to this element's position (may be the same element)
+				//and then set our array to everything but that last element
+				reminder.Notifyees[removeIndex] = reminder.Notifyees[currentLength-1]
+				reminder.Notifyees = reminder.Notifyees[:currentLength-1]
 
 				rh.writeData()
-
-				message := rh.userPingString(user) + " added " + reminder.Name + " reminder"
-				MessageSender.SendMessage(channelID, message)
-			}
-		}
-	} else {
-		MessageSender.SendMessage(channelID, "Invalid add syntax")
-	}
-
-}
-
-func (rh *ReminderHandler) list(channelID string) {
-	formattedChannelReminder := rh.formatChannelReminders(channelID)
-	MessageSender.SendMessage(channelID, formattedChannelReminder)
-}
-
-func (rh *ReminderHandler) addUser(channelID string, user string, data string) {
-	if match := rh.addRemoveUserMatcher.FindStringSubmatch(data); match != nil {
-		if channelData, ok := rh.channelReminders[channelID]; ok {
-			if index, err := strconv.Atoi(match[1]); err == nil {
-				if len(channelData.Reminders) > index && index >= 0 {
-					reminder := channelData.Reminders[index]
-					for _, notifyee := range reminder.Notifyees {
-						if user == notifyee {
-							//Hey, you're already here!
-							MessageSender.SendMessage(channelID, "You're already a notifyee of this reminder!")
-							return
-						}
-					}
-
-					//Not here already, lets add you!
-					reminder.Notifyees = append(reminder.Notifyees, user)
-					rh.writeData()
-					MessageSender.SendMessage(channelID, "Added user "+rh.userPingString(user)+" to notification list")
-				} else {
-					MessageSender.SendMessage(channelID, "That's not a valid reminder!")
-				}
-			} else {
-				MessageSender.SendMessage(channelID, "Could not convert "+data+" to an integer!")
+				return "Unsubscribed " + rh.userPingString(user) + " from notification list"
 			}
 		} else {
-			MessageSender.SendMessage(channelID, "No reminders for this channel!")
+			return "Invalid reminder specified!"
 		}
+
 	} else {
-		MessageSender.SendMessage(channelID, "Invalid syntax")
-	}
-}
-
-func (rh *ReminderHandler) removeUser(channelID string, user string, data string) {
-	if match := rh.addRemoveUserMatcher.FindStringSubmatch(data); match != nil {
-		if channelData, ok := rh.channelReminders[channelID]; ok {
-			if index, err := strconv.Atoi(match[1]); err == nil {
-				if len(channelData.Reminders) >= index && index >= 0 {
-					reminder := channelData.Reminders[index]
-					var removeIndex int = -1
-					for x, notifyee := range reminder.Notifyees {
-						if notifyee == user {
-							removeIndex = x
-							break
-						}
-					}
-
-					if removeIndex == -1 {
-						//You're not in this notification list!
-						MessageSender.SendMessage(channelID, "You're not registered as a notifyee of this reminder!")
-					} else {
-						currentLength := len(reminder.Notifyees)
-						//Swap the last element to this element's position (may be the same element)
-						//and then set our array to everything but that last element
-						reminder.Notifyees[removeIndex] = reminder.Notifyees[currentLength-1]
-						reminder.Notifyees = reminder.Notifyees[:currentLength-1]
-
-						rh.writeData()
-						MessageSender.SendMessage(channelID, "Removed "+rh.userPingString(user)+" from notification list")
-					}
-				} else {
-					MessageSender.SendMessage(channelID, "Invalid reminder specified!")
-				}
-			} else {
-				MessageSender.SendMessage(channelID, "Could not interpret "+data+" as an integer!")
-			}
-		} else {
-			MessageSender.SendMessage(channelID, "This channel does not have reminders!")
-		}
-	} else {
-		MessageSender.SendMessage(channelID, "Invalid parameters provided!")
+		return "This channel does not have reminders!"
 	}
 }
 

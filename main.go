@@ -4,25 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/signal"
-	"regexp"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-//Configuration Struct used to store config info from json
+// Configuration Struct used to store config info from json
 type Configuration struct {
 	Token string `json:"Token"`
 	Name  string `json:"Name"`
 }
 
 var handlers []MessageHandler
-var handlerChannels []chan *discordgo.MessageCreate
-var nameRegex regexp.Regexp
 
-//var session *discordgo.Session
+var handlerMap map[string]MessageHandler
 
 var MessageSender Messager
 
@@ -37,12 +35,10 @@ func main() {
 
 	fmt.Println("Using token: " + configuration.Token)
 
-	handlers, handlerChannels = setupHandlers()
-	regexPattern := "\\!" + configuration.Name
-	nameRegex = *regexp.MustCompile(regexPattern)
+	handlers = setupHandlers()
 
 	session.AddHandler(ready)
-	session.AddHandler(messageCreate)
+	session.AddHandler(interaction)
 
 	session.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsAllWithoutPrivileged)
 	MessageSender.Init(session)
@@ -53,33 +49,63 @@ func main() {
 		return
 	}
 
-	//Diagnostic info dump
+	//Get all the guilds we belong to (I don't have more than a handful, so I'm not worried about
+	//handling more than 100 at this time. Known limitation, y'know?)
 	guilds, err := session.UserGuilds(100, "", "")
+	appId := session.State.User.ID
+	fmt.Println("My id is maybe: " + appId)
 	if err == nil {
+		fmt.Println("Adding commands...")
 		for _, guild := range guilds {
-			fmt.Println("Guild: " + guild.Name)
-			emojis, err := session.GuildEmojis(guild.ID)
-			if err == nil {
-				for _, emoji := range emojis {
-					fmt.Println(emoji.Name + " : " + emoji.ID)
+			/*
+				fmt.Println("Guild: " + guild.Name)
+				emojis, err := session.GuildEmojis(guild.ID)
+				if err == nil {
+					for _, emoji := range emojis {
+						fmt.Println(emoji.Name + " : " + emoji.ID)
+					}
+				}
+			*/
+
+			//Do I need to clean up any legacy commands that shouldn't exist anymore?
+			//This will remove everything that's registered with us, prior to adding what's current
+			if allCommands, err := session.ApplicationCommands(appId, guild.ID); err == nil {
+				fmt.Println("Commands for guild " + guild.ID + ":")
+				for _, singleCommand := range allCommands {
+					fmt.Println(singleCommand.Name)
+					err := session.ApplicationCommandDelete(appId, guild.ID, singleCommand.ID)
+					if err != nil {
+						fmt.Println("Failed to remove: " + singleCommand.Name)
+					}
 				}
 			}
+
+			//Register commands for all our handlers (that have commands)
+			handlerMap = make(map[string]MessageHandler)
+			for _, handler := range handlers {
+				appData := handler.GetApplicationCommand()
+				if appData != nil {
+					handlerMap[appData.Name] = handler
+					_, err := session.ApplicationCommandCreate(session.State.User.ID, guild.ID, appData)
+					if err != nil {
+						log.Panicf("Cannot create '%v' command: %v\n", appData.Name, err)
+					}
+				}
+			}
+
 		}
 	}
 
 	// Wait here until CTRL-C or other term signal is received.
 	fmt.Println("DisKhard is now running. Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 
 	//Run until we're done!
 	<-sc
-	for _, handlerChannel := range handlerChannels {
-		handlerChannel <- nil
-	}
 }
 
-//Init Reads in the configuration
+// Init Reads in the configuration
 func Init() Configuration {
 
 	var configuration Configuration
@@ -98,7 +124,7 @@ func Init() Configuration {
 	return configuration
 }
 
-func setupHandlers() ([]MessageHandler, []chan *discordgo.MessageCreate) {
+func setupHandlers() []MessageHandler {
 	slices := []MessageHandler{
 		//&EchoHandler{},
 		&AlternatingCaseHandler{},
@@ -107,51 +133,22 @@ func setupHandlers() ([]MessageHandler, []chan *discordgo.MessageCreate) {
 		&ImageHandler{},
 		&ReminderHandler{},
 		//&FortuneHandler{},
-		//&VoiceHandler{},
 		&IPHandler{},
 	}
 
-	handlerChannels := make([]chan *discordgo.MessageCreate, 0)
 	for _, handler := range slices {
-		handlerChannel := make(chan *discordgo.MessageCreate)
-		handler.Init(handlerChannel)
-		handlerChannels = append(handlerChannels, handlerChannel)
-		fmt.Println("Initialized ", handler.GetName())
+		handler.Init()
 	}
 
-	return slices, handlerChannels
+	return slices
 }
 
 func ready(s *discordgo.Session, event *discordgo.Ready) {
-	s.UpdateStatus(0, "Soul Eater Hungers")
+	s.UpdateGameStatus(0, "可笑しいな")
 }
 
-//messageCreate handles passing messages to our interested handlers
-func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-
-	// Ignore ourselves
-	if m.Author.ID == s.State.User.ID {
-		return
+func interaction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if h, ok := handlerMap[i.ApplicationCommandData().Name]; ok {
+		h.Handler(s, i)
 	}
-
-	if nameRegex.MatchString(m.Content) {
-		showHandlerInfo(s, m.ChannelID)
-	} else {
-		for _, handlerChannel := range handlerChannels {
-			handlerChannel <- m
-		}
-	}
-}
-
-func showHandlerInfo(s *discordgo.Session, channelID string) {
-	helpMessage := "Hey there! I currently support the following options:\n"
-
-	for _, handler := range handlers {
-		handlerHelp := handler.Help()
-		if len(handlerHelp) > 0 {
-			helpMessage += handlerHelp + "\n"
-		}
-	}
-
-	_, _ = s.ChannelMessageSend(channelID, helpMessage)
 }

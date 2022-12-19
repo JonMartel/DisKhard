@@ -1,53 +1,46 @@
 package main
 
 import (
-	"regexp"
 	"unicode"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-//AlternatingCaseHandler Echoes messages to stdout
+// AlternatingCaseHandler Echoes messages to stdout
 type AlternatingCaseHandler struct {
 }
 
-const acCommand = "/ac "
-
-//Init Handles setting up our channel listener
-func (ach *AlternatingCaseHandler) Init(m chan *discordgo.MessageCreate) {
-	go func() {
-		for {
-			select {
-			case message := <-m:
-				if message != nil {
-					ach.handleMessage(message)
-				} else {
-					return
-				}
-			}
-		}
-	}()
+// Init Handles setting up our channel listener
+func (ach *AlternatingCaseHandler) Init() {
+	//Nothing to initialize
 }
 
-//GetName returns the name of this handler
-func (ach *AlternatingCaseHandler) GetName() string {
-	return "Alternating Case Handler"
-}
-
-//HandleMessage echoes the messages seen back, but aLtErNaTiNg CaSe
-func (ach *AlternatingCaseHandler) handleMessage(m *discordgo.MessageCreate) {
-	match, _ := regexp.MatchString("^"+acCommand+"(.+)", m.Content)
-	if match == true {
-		//Alternate case the important bits
-		sliced := []rune(m.Content[4:len(m.Content)])
-		MessageSender.SendMessage(m.ChannelID, ach.alternateCase(sliced))
-		MessageSender.DeleteMessage(m.ChannelID, m.ID)
+func (ach *AlternatingCaseHandler) GetApplicationCommand() *discordgo.ApplicationCommand {
+	command := discordgo.ApplicationCommand{
+		Name:        "ac",
+		Description: "Display a message using alternating case",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "message",
+				Description: "Message to alternate case",
+				Required:    true,
+			},
+		},
 	}
+
+	return &command
 }
 
-//Help Gets info about this handler
-func (ach *AlternatingCaseHandler) Help() string {
-	return acCommand + ": Alternate Case - takes input string and aLtErNaTeS iT!"
+func (ach *AlternatingCaseHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	message := i.ApplicationCommandData().Options[0].StringValue()
+	runed := []rune(message)
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: ach.alternateCase(runed),
+		},
+	})
 }
 
 func (ach *AlternatingCaseHandler) alternateCase(sliced []rune) string {

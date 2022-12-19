@@ -13,7 +13,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-//ImageHandler automatically posts images from specified directories on a schedule
+// ImageHandler automatically posts images from specified directories on a schedule
 type ImageHandler struct {
 	matcher      regexp.Regexp
 	startMatcher regexp.Regexp
@@ -39,8 +39,116 @@ type channelImageData struct {
 const iCommand string = "/i"
 const imageDataFile = "./imageData.json"
 
-//Init compiles regexp and loads in saved information
-func (ih *ImageHandler) Init(m chan *discordgo.MessageCreate) {
+func (ih *ImageHandler) GetApplicationCommand() *discordgo.ApplicationCommand {
+	zero := (float64)(0)
+	one := (float64)(1)
+	command := discordgo.ApplicationCommand{
+		Name:        "image",
+		Description: "Handles publishing images from a directory on a schedule",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Name:        "list",
+				Description: "Displays image schedule",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+			},
+			{
+				Name:        "schedule",
+				Description: "Schedule automatic posting of images",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "directory",
+						Description: "Directory containing images to schedule",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "frequency",
+						Description: "Frequency of posting",
+						Required:    true,
+						Choices: []*discordgo.ApplicationCommandOptionChoice{
+							{
+								Name:  "manual",
+								Value: "manual",
+							},
+							{
+								Name:  "daily",
+								Value: "daily",
+							},
+							{
+								Name:  "monday",
+								Value: "monday",
+							},
+							{
+								Name:  "tuesday",
+								Value: "tuesday",
+							},
+							{
+								Name:  "wednesday",
+								Value: "wednesday",
+							},
+							{
+								Name:  "thursday",
+								Value: "thursday",
+							},
+							{
+								Name:  "friday",
+								Value: "friday",
+							},
+							{
+								Name:  "saturday",
+								Value: "saturday",
+							},
+							{
+								Name:  "sunday",
+								Value: "sunday",
+							},
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "hour",
+						Description: "Hour to post images at",
+						MinValue:    &zero,
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "count",
+						Description: "How many images to display each time",
+						MinValue:    &one,
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "repeat",
+						Description: "Enable to loop displaying images",
+						Required:    true,
+					},
+				},
+			},
+			{
+				Name:        "next",
+				Description: "Manually display next set of images",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "name",
+						Description: "Image Block name (directory)",
+						Required:    true,
+					},
+				},
+			},
+		},
+	}
+
+	return &command
+}
+
+// Init compiles regexp and loads in saved information
+func (ih *ImageHandler) Init() {
 	ih.matcher = *regexp.MustCompile(`^\` + iCommand + `\s+(\w+)\s*(.*)`)
 	//dir, schedule, hour, repeat
 	ih.startMatcher = *regexp.MustCompile(`^(\w+)\s(\w+)\s(\d+)\s(\d+)\s(\w+)$`)
@@ -83,48 +191,35 @@ func (ih *ImageHandler) Init(m chan *discordgo.MessageCreate) {
 		minuteSchedule := time.NewTicker(time.Minute)
 		defer minuteSchedule.Stop()
 		for {
-			select {
-			case message := <-m:
-				if message != nil {
-					ih.handleMessage(message)
-				} else {
-					return
-				}
-			case <-minuteSchedule.C:
-				ih.scheduledTask()
-			}
+			<-minuteSchedule.C
+			ih.scheduledTask()
 		}
 	}()
 }
 
-//GetName returns our name
-func (ih *ImageHandler) GetName() string {
-	return "Image Handler"
-}
+func (ih *ImageHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	command := i.ApplicationCommandData().Options[0]
+	options := command.Options
+	content := ""
 
-//HandleMessage echoes the messages seen to stdout
-func (ih *ImageHandler) handleMessage(m *discordgo.MessageCreate) {
-	submatches := ih.matcher.FindStringSubmatch(m.Content)
-	if submatches != nil {
-		command := submatches[1]
-		switch command {
-		case "start":
-			ih.start(m.ChannelID, submatches[2])
-		case "next":
-			ih.next(m.ChannelID, submatches[2])
-		case "list":
-			ih.list(m.ChannelID)
-		case "help":
-			ih.help(m.ChannelID)
-		default:
-			ih.help(m.ChannelID)
-		}
-
-		//DeleteMessage(m.ChannelID, m.ID)
+	switch command.Name {
+	case "schedule":
+		content = ih.start(i, options)
+	case "next":
+		content = ih.next(i, options)
+	case "list":
+		content = ih.list(i)
 	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
+		},
+	})
 }
 
-//ScheduledTask Handle our scheduled release notifications
+// ScheduledTask Handle our scheduled release notifications
 func (ih *ImageHandler) scheduledTask() {
 	currentTime := time.Now()
 	updatedGlobally := false
@@ -174,26 +269,8 @@ func (ih *ImageHandler) scheduledTask() {
 	}
 }
 
-//Help Gets info about this handler
-func (ih *ImageHandler) Help() string {
-	return "/i : Image Reader - Reads images into chat from disk on a set schedule"
-}
-
-func (ih *ImageHandler) help(channelID string) {
-	helpMessage := "The following commands are supported by /i:\n"
-	helpMessage += "/i start <dir> <frequency> <hour> <pages-per-post> <repeat>\n"
-	helpMessage += "  Starts automatic posting of the images in the specified server dir\n"
-	helpMessage += "  Frequency is when posts are automatically made (manual|daily|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\n"
-	helpMessage += "  Hour is hour of the day to post at (0-23)\n"
-	helpMessage += "  Pages per post is how many pages to display at once\n"
-	helpMessage += "  Repeat allows the image block to repeat once it has finished (true|false)\n"
-	helpMessage += "/i list - lists out all currently configured image blocks and their progress\n"
-
-	MessageSender.SendMessage(channelID, helpMessage)
-}
-
-func (ih *ImageHandler) list(channelID string) {
-	if channelData, exists := ih.imageMap[channelID]; exists {
+func (ih *ImageHandler) list(i *discordgo.InteractionCreate) string {
+	if channelData, exists := ih.imageMap[i.ChannelID]; exists {
 		if len(channelData.ImageData) > 0 {
 			message := "Image Block Data\n"
 			for _, imageBlock := range channelData.ImageData {
@@ -203,83 +280,89 @@ func (ih *ImageHandler) list(channelID string) {
 					message += imageBlock.Dir + " Page: " + page + " / " + total + "\n"
 				}
 			}
-			MessageSender.SendMessage(channelID, message)
-			return
+
+			return message
 		}
 	}
 
 	//If we got here, no channel data exists!
-	MessageSender.SendMessage(channelID, "No image block data exists for this channel!")
+	return "No image block data exists for this channel!"
 }
 
-func (ih *ImageHandler) start(channelID string, command string) {
-	submatches := ih.startMatcher.FindStringSubmatch(command)
-	if submatches != nil {
-		dir := submatches[1]
-		schedule := submatches[2]
-		hourStr := submatches[3]
-		multiplierStr := submatches[4]
-		repeatStr := submatches[5]
+func (ih *ImageHandler) start(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
+	message := ""
+	dir := options[0].StringValue()
+	schedule := options[1].StringValue()
+	hour := (int)(options[2].IntValue())
+	multiplier := (int)(options[3].IntValue())
+	repeat := options[4].BoolValue()
 
-		//Valid schedule?
-		if _, valid := ih.scheduleEnum[schedule]; valid {
+	//Valid schedule?
+	if _, valid := ih.scheduleEnum[schedule]; valid {
 
-			//Parse the parse-needed values
-			if hour, err := strconv.Atoi(hourStr); err == nil {
-				if multiplier, err := strconv.Atoi(multiplierStr); err == nil {
-					if repeat, err := strconv.ParseBool(repeatStr); err == nil {
-						if newImageData, err := ih.buildImageData(dir, schedule, hour, multiplier, repeat); err == nil {
+		//Does the directory exist and have contents?
+		if _, err := ih.listFiles(dir); err == nil {
 
-							//Create our channel map if needed
-							if _, exists := ih.imageMap[channelID]; !exists {
-								ih.imageMap[channelID] = &channelImageData{
-									ChannelID: channelID,
-								}
-								ih.imageMap[channelID].ImageData = make([]*imageData, 0)
-							}
+			if newImageData, err := ih.buildImageData(dir, schedule, hour, multiplier, repeat); err == nil {
 
-							//Append our new image data
-							ih.imageMap[channelID].ImageData = append(ih.imageMap[channelID].ImageData, newImageData)
-							ih.writeData()
-						} else {
-							fmt.Println("failed to build up image data!")
-						}
+				//Create our channel map if needed
+				if _, exists := ih.imageMap[i.ChannelID]; !exists {
+					ih.imageMap[i.ChannelID] = &channelImageData{
+						ChannelID: i.ChannelID,
 					}
+					ih.imageMap[i.ChannelID].ImageData = make([]*imageData, 0)
 				}
+
+				//Append our new image data
+				ih.imageMap[i.ChannelID].ImageData = append(ih.imageMap[i.ChannelID].ImageData, newImageData)
+				ih.writeData()
+
+				message = "Scheduled image rotation"
+			} else {
+				fmt.Println("Failed to build up image data!")
 			}
 		} else {
-			MessageSender.SendMessage(channelID, schedule+" is not a valid schedule")
+			message = dir + " is not a valid image directory"
 		}
+
 	} else {
-		MessageSender.SendMessage(channelID, "Invalid start usage. See help for details")
+		message = schedule + " is not a valid schedule"
 	}
+
+	return message
 }
 
-func (ih *ImageHandler) next(channelID string, command string) {
-	submatches := ih.nextMatcher.FindStringSubmatch(command)
-	if submatches != nil {
-		imageGroupDir := submatches[1]
-		if imageGroup, ok := ih.imageMap[channelID]; ok {
-			for _, data := range imageGroup.ImageData {
-				if data.Dir == imageGroupDir {
-					if imageList, err := ih.listFiles(data.Dir); err == nil {
-						ih.displayMultiple(channelID, data, imageList)
-						if len(imageList) <= data.Current {
-							if data.Repeat {
-								data.Current = 0
-							} else {
-								MessageSender.SendMessage(channelID, "Done! Completed all images for image block: "+data.Dir)
-							}
-						}
-						ih.writeData()
-					}
-					return
-				}
+func (ih *ImageHandler) next(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
+	message := ""
+	imageGroupDir := options[0].StringValue()
+
+	if imageGroup, ok := ih.imageMap[i.ChannelID]; ok {
+		for _, data := range imageGroup.ImageData {
+			if data.Dir == imageGroupDir {
+				go ih.display(i.ChannelID, data)
+				return "Displaying next image(s) for " + imageGroupDir
 			}
-			MessageSender.SendMessage(channelID, "Specified image group does not exist!")
-		} else {
-			MessageSender.SendMessage(channelID, "No image groups on this channel!")
 		}
+		message = "Specified image group does not exist!"
+	} else {
+		message = "No image groups on this channel!"
+	}
+
+	return message
+}
+
+func (ih *ImageHandler) display(channelID string, data *imageData) {
+
+	if imageList, err := ih.listFiles(data.Dir); err == nil {
+		ih.displayMultiple(channelID, data, imageList)
+		if len(imageList) <= data.Current {
+			if data.Repeat {
+				data.Current = 0
+			} else {
+				//"Done! Completed all images for image block: " + data.Dir
+			}
+		}
+		ih.writeData()
 	}
 }
 
@@ -351,6 +434,6 @@ func (ih *ImageHandler) displayMultiple(channelID string, data *imageData, image
 		MessageSender.SendFile(channelID, imageList[data.Current])
 		data.Current++
 	}
-	
+
 	//Cleanup is handled by the respective callers, as they need to handle clean-up differently
 }

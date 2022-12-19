@@ -12,7 +12,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-//ReleaseHandler Echoes messages to stdout
+// ReleaseHandler Echoes messages to stdout
 type ReleaseHandler struct {
 	matcher       regexp.Regexp
 	addMatcher    regexp.Regexp
@@ -94,8 +94,8 @@ func extractQuarterInfo(quarter, year string) (int, int, error) {
 const rwCommand string = "/rw"
 const dataFile = "./releaseData.json"
 
-//Init compiles regexp and loads in saved information
-func (rh *ReleaseHandler) Init(m chan *discordgo.MessageCreate) {
+// Init compiles regexp and loads in saved information
+func (rh *ReleaseHandler) Init() {
 	rh.matcher = *regexp.MustCompile(`^\` + rwCommand + `\s+(\w+)\s*(.*)`)
 	rh.addMatcher = *regexp.MustCompile(`^([\w-/]+) (.*)`)
 	rh.editMatcher = *regexp.MustCompile(`^(\d+) ([\w-/]+)`)
@@ -135,46 +135,103 @@ func (rh *ReleaseHandler) Init(m chan *discordgo.MessageCreate) {
 		minuteSchedule := time.NewTicker(time.Minute)
 		defer minuteSchedule.Stop()
 		for {
-			select {
-			case message := <-m:
-				if message != nil {
-					rh.handleMessage(message)
-				} else {
-					return
-				}
-			case <-minuteSchedule.C:
-				rh.scheduledTask()
-			}
+			<-minuteSchedule.C
+			rh.scheduledTask()
 		}
 	}()
 }
 
-//GetName returns our name
-func (rh *ReleaseHandler) GetName() string {
-	return "Release Handler"
+func (rh *ReleaseHandler) GetApplicationCommand() *discordgo.ApplicationCommand {
+	command := discordgo.ApplicationCommand{
+		Name:        "release-watch",
+		Description: "Track upcoming releases",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Name:        "list",
+				Description: "Displays all currently tracked releases",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+			},
+			{
+				Name:        "track",
+				Description: "Add a new release to be tracked",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "name",
+						Description: "Name of the thing being released",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "date",
+						Description: "Release date (MM/DD/YYYY, QXYYYY, or Freeform)",
+						Required:    true,
+					},
+				},
+			},
+			{
+				Name:        "edit",
+				Description: "Edit the release date for a specified release",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "index",
+						Description: "Index of the release to edit",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "date",
+						Description: "Release date (MM/DD/YYYY, QXYYYY, or Freeform)",
+						Required:    true,
+					},
+				},
+			},
+			{
+				Name:        "delete",
+				Description: "Remove a release from tracking",
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "index",
+						Description: "Index of the release to untrack",
+						Required:    true,
+					},
+				},
+			},
+		},
+	}
+
+	return &command
 }
 
-func (rh *ReleaseHandler) handleMessage(m *discordgo.MessageCreate) {
-	submatches := rh.matcher.FindStringSubmatch(m.Content)
-	if submatches != nil {
-		command := submatches[1]
-		switch command {
-		case "add":
-			rh.add(m.ChannelID, submatches[2])
-		case "list":
-			rh.list(m.ChannelID)
-		case "edit":
-			rh.edit(m.ChannelID, submatches[2])
-		case "delete":
-			rh.delete(m.ChannelID, submatches[2])
-		case "help":
-			rh.help(m.ChannelID)
-		default:
-			rh.help(m.ChannelID)
-		}
+func (rh *ReleaseHandler) Handler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	command := i.ApplicationCommandData().Options[0]
+	options := command.Options
+	content := ""
 
-		MessageSender.DeleteMessage(m.ChannelID, m.ID)
+	// As you can see, names of subcommands (nested, top-level)
+	// and subcommand groups are provided through the arguments.
+	switch command.Name {
+	case "list":
+		content = rh.list(i)
+	case "track":
+		content = rh.add(i, options)
+	case "edit":
+		content = rh.edit(i, options)
+	case "delete":
+		content = rh.delete(i, options)
 	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
+		},
+	})
 }
 
 func (rh *ReleaseHandler) scheduledTask() {
@@ -222,11 +279,6 @@ func (rh *ReleaseHandler) scheduledTask() {
 	}
 }
 
-//Help Gets info about this release handler
-func (rh *ReleaseHandler) Help() string {
-	return "/rw : Release Watch - Tracks upcoming releases and notifies when they've arrived"
-}
-
 func (rh *ReleaseHandler) writeData() {
 	//join all the releases into a single slice...
 	channelDataSlice := make([]channelReleaseData, 0)
@@ -241,42 +293,43 @@ func (rh *ReleaseHandler) writeData() {
 	}
 }
 
-func (rh *ReleaseHandler) add(channelID string, data string) {
-	match := rh.addMatcher.FindStringSubmatch(data)
-	if match != nil {
-		releaseInfo := releaseData{}
-		releaseInfo.ReleaseDate = match[1]
-		releaseInfo.Name = match[2]
-		rh.updateReleaseTime(&releaseInfo)
+func (rh *ReleaseHandler) add(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
 
-		if releaseInfo.ParsedDate != nil {
-			now := time.Now()
-			if !now.Before(*releaseInfo.ParsedDate) {
-				MessageSender.SendMessage(channelID, "Error: Specified date \""+match[1]+"\" is in the past!")
-				return
-			}
+	// name string, date string
+	releaseInfo := releaseData{}
+	releaseInfo.Name = options[0].StringValue()
+	releaseInfo.ReleaseDate = options[1].StringValue()
+
+	rh.updateReleaseTime(&releaseInfo)
+
+	message := ""
+	if releaseInfo.ParsedDate != nil {
+		now := time.Now()
+		if !now.Before(*releaseInfo.ParsedDate) {
+			message = "Error: Specified date \"" + options[1].StringValue() + "\" is in the past!"
 		}
+	}
 
-		channel, ok := rh.releases[channelID]
+	if message == "" {
+		channel, ok := rh.releases[i.ChannelID]
 		if !ok {
-			channel = rh.initChannel(channelID)
+			channel = rh.initChannel(i.ChannelID)
 		}
 
 		channel.Releases = append(channel.Releases, releaseInfo)
 		sort.Stable(byReleaseDate(channel.Releases))
 
 		rh.writeData()
-		rh.updateChannelPin(channelID)
-		MessageSender.SendMessage(channelID, "Added "+releaseInfo.Name+" to releases, releasing "+releaseInfo.ReleaseDate)
-	} else {
-		MessageSender.SendMessage(channelID, "Invalid add syntax")
+		rh.updateChannelPin(i.ChannelID)
+		message = "Added " + releaseInfo.Name + " to releases, releasing " + releaseInfo.ReleaseDate
 	}
 
+	return message
 }
 
-func (rh *ReleaseHandler) list(channelID string) {
-	formattedChannelRelease := rh.formatChannelReleases(channelID)
-	MessageSender.SendMessage(channelID, formattedChannelRelease)
+func (rh *ReleaseHandler) list(i *discordgo.InteractionCreate) string {
+	formattedChannelRelease := rh.formatChannelReleases(i.ChannelID)
+	return formattedChannelRelease
 }
 
 func (rh *ReleaseHandler) formatChannelReleases(channelID string) string {
@@ -302,88 +355,65 @@ func (rh *ReleaseHandler) formatChannelReleases(channelID string) string {
 	return list
 }
 
-func (rh *ReleaseHandler) edit(channelID string, data string) {
-	match := rh.editMatcher.FindStringSubmatch(data)
-	if match != nil {
-		index, err := strconv.Atoi(match[1])
-		if err == nil {
-			newReleaseDate := match[2]
-			if channelData, ok := rh.releases[channelID]; ok {
+func (rh *ReleaseHandler) edit(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
+	message := ""
+	index := (int)(options[0].IntValue())
+	newReleaseDate := options[1].StringValue()
 
-				slice := channelData.Releases
-				if slice != nil {
-					if len(slice) > index || index < 0 {
-						entry := &slice[index]
-						entryName := entry.Name
-						entry.ReleaseDate = newReleaseDate
-						rh.updateReleaseTime(entry)
-						sort.Stable(byReleaseDate(slice))
+	if channelData, ok := rh.releases[i.ChannelID]; ok {
 
-						rh.updateChannelPin(channelData.ChannelID)
-						rh.writeData()
-						MessageSender.SendMessage(channelID, "Successfully updated release date for "+entryName)
-					} else {
-						//invalid index provided
-						MessageSender.SendMessage(channelID, "Invalid ID specified")
-					}
-				} else {
-					//Channel has no releases?
-					MessageSender.SendMessage(channelID, "No releases currently available to edit")
-				}
+		slice := channelData.Releases
+		if slice != nil {
+			if len(slice) > index || index < 0 {
+				entry := &slice[index]
+				entryName := entry.Name
+				entry.ReleaseDate = newReleaseDate
+				rh.updateReleaseTime(entry)
+				sort.Stable(byReleaseDate(slice))
+
+				rh.updateChannelPin(channelData.ChannelID)
+				rh.writeData()
+				message = "Successfully updated release date for " + entryName
 			} else {
-				//Channel data doesn't exist (yet), hence no releases to edit
-				MessageSender.SendMessage(channelID, "No releases currently available to edit")
+				//invalid index provided
+				message = "Invalid ID specified"
 			}
 		} else {
-			//error parsing index
-			MessageSender.SendMessage(channelID, "Could not parse ID: "+match[1])
+			//Channel has no releases?
+			message = "No releases currently available to edit"
 		}
 	} else {
-		//Invalid command format!
-		MessageSender.SendMessage(channelID, "Invalid parameters for /rw edit, please see help")
+		//Channel data doesn't exist (yet), hence no releases to edit
+		message = "No releases currently available to edit"
 	}
+
+	return message
 }
 
-func (rh *ReleaseHandler) delete(channelID string, data string) {
-	match := rh.deleteMatcher.FindStringSubmatch(data)
-	if match != nil {
-		index, err := strconv.Atoi(match[1])
-		if err == nil {
-			if channelData, ok := rh.releases[channelID]; ok {
-				if channelData.Releases != nil {
-					if len(channelData.Releases) > index || index < 0 {
-						removedRelease := channelData.Releases[index]
-						fmt.Println("Removing " + removedRelease.Name + " (" + removedRelease.ReleaseDate + ") from releases")
-						channelData.Releases = append(channelData.Releases[:index], channelData.Releases[index+1:]...)
-						rh.updateChannelPin(channelData.ChannelID)
-						rh.writeData()
-						MessageSender.SendMessage(channelID, "Removed "+removedRelease.Name+" from releases")
-					} else {
-						MessageSender.SendMessage(channelID, "Error: Invalid ID specified")
-					}
-				} else {
-					MessageSender.SendMessage(channelID, "Error: Channel does not have any releases to delete!")
-				}
+func (rh *ReleaseHandler) delete(i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) string {
+	message := ""
+	index := (int)(options[0].IntValue())
+
+	if channelData, ok := rh.releases[i.ChannelID]; ok {
+		if channelData.Releases != nil {
+			if len(channelData.Releases) > index || index < 0 {
+				removedRelease := channelData.Releases[index]
+				fmt.Println("Removing " + removedRelease.Name + " (" + removedRelease.ReleaseDate + ") from releases")
+				channelData.Releases = append(channelData.Releases[:index], channelData.Releases[index+1:]...)
+				rh.updateChannelPin(channelData.ChannelID)
+				rh.writeData()
+				message = "Removed " + removedRelease.Name + " from releases"
 			} else {
-				MessageSender.SendMessage(channelID, "Error: Channel does not have any releases to delete!")
+				message = "Error: Invalid ID specified"
 			}
+		} else {
+			message = "Error: Channel does not have any releases to delete!"
 		}
+	} else {
+		message = "Error: Channel does not have any releases to delete!"
 	}
-}
 
-func (rh *ReleaseHandler) help(channelID string) {
-	helpMessage := "The following commands are supported by /rw:\n"
-	helpMessage += "/rw add <date> <release> - Adds the following release for tracking.\n"
-	helpMessage += "\t<date> can be in the following formats: MM/DD/YYYY MM-DD-YY\n"
-	helpMessage += "\teg: /rw add 10/20/35 Persona 8 Dancing All 'Night\n"
-	helpMessage += "/rw list - Lists all currently tracked releases\n"
-	helpMessage += "/rw edit <id> <date> - Change the specified release's release date.\n"
-	helpMessage += "\tID can be obtained from /rw list\n"
-	helpMessage += "\teg: /rw edit 12 5/16/2024\n"
-	helpMessage += "/rw delete <id> - Delete the specified release!\n\teg: /rw delete 5\n"
-	helpMessage += "/rw help - This output here!"
-
-	MessageSender.SendMessage(channelID, helpMessage)
+	return message
 }
 
 func (rh *ReleaseHandler) updateReleaseTime(rel *releaseData) {
